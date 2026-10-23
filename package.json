@@ -1,6 +1,6 @@
 {
   "name": "thread-app-manager",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "React and Electron prototype for managing applications associated with agent worktrees.",
   "main": "electron/main.cjs",
