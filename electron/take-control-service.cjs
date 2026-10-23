@@ -29,7 +29,7 @@ async function runWindowScript(mode, targets, input) {
   const script = await readFile(windowScript, 'utf8');
   const mouseVariables =
     mode === 'mouse'
-      ? `$MouseType = '${input.type}'\n$MouseX = ${input.x}\n$MouseY = ${input.y}\n$MouseButton = '${input.button}'\n$MouseFlags = ${input.buttons}\n$MouseDelta = ${input.delta}\n`
+      ? `$MouseType = '${input.type}'\n$MouseX = ${input.x}\n$MouseY = ${input.y}\n$MouseButton = '${input.button}'\n$MouseFlags = ${input.buttons}\n$MouseDelta = ${input.delta}\n$PreviewHandle = '${input.handle ?? ''}'\n`
       : mode === 'key'
         ? `$KeyCode = ${input.keyCode}\n$CharCodes = @(${input.charCodes.join(',')})\n$Modifiers = ${input.modifiers}\n`
         : mode === 'embed' || mode === 'embed-hidden'
@@ -72,6 +72,7 @@ function createTakeControlService({
 }) {
   let latest = new Map();
   const embeds = new Map();
+  const previewWindows = new Map();
 
   function remember(runtimes) {
     latest = new Map(runtimes.map((runtime) => [runtime.id, planTakeControl(runtime)]));
@@ -143,7 +144,8 @@ function createTakeControlService({
       Math.abs(input.delta) <= 120;
     if (!valid) throw new Error('Invalid preview input.');
     try {
-      return (await runWindowScript('mouse', plan.windowTargets, input)) === 'sent';
+      const handle = previewWindows.get(runtimeId);
+      return (await runWindowScript('mouse', plan.windowTargets, { ...input, handle })) === 'sent';
     } catch {
       return false;
     }
@@ -290,13 +292,19 @@ function createTakeControlService({
   async function getPreview(runtimeId) {
     const plan = planFor(runtimeId);
     const embedded = embeds.get(runtimeId);
-    if (embedded) return { kind: 'window', handle: embedded.handle };
+    if (embedded) {
+      previewWindows.set(runtimeId, embedded.handle);
+      return { kind: 'window', handle: embedded.handle };
+    }
     let windowLookupError;
 
     if (platform === 'win32' && plan.windowTargets?.length > 0) {
       try {
         const handle = await findWindow(plan.windowTargets);
-        if (handle) return { kind: 'window', handle };
+        if (handle) {
+          previewWindows.set(runtimeId, handle);
+          return { kind: 'window', handle };
+        }
       } catch (error) {
         windowLookupError = error;
       }
