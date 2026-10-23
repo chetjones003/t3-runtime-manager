@@ -24,9 +24,8 @@
       ]
     },
     "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true
+      "oneClick": true,
+      "perMachine": false
     },
     "mac": {
       "target": [
