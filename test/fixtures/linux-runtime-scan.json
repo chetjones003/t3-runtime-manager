@@ -1,0 +1,44 @@
+{
+  "worktrees": [
+    { "id": "alpha", "path": "/home/dev/alpha" },
+    { "id": "beta", "path": "/home/dev/beta" },
+    { "id": "alpha-two", "path": "/home/dev/alpha/nested" }
+  ],
+  "processes": [
+    {
+      "pid": 4100,
+      "parentPid": 1,
+      "name": "node",
+      "executablePath": "/usr/bin/node",
+      "commandLine": "node /home/dev/alpha/node_modules/vite/bin/vite.js --port 4173"
+    },
+    {
+      "pid": 4101,
+      "parentPid": 4100,
+      "name": "esbuild",
+      "executablePath": "/home/dev/alpha/node_modules/esbuild/bin/esbuild",
+      "commandLine": "/home/dev/alpha/node_modules/esbuild/bin/esbuild --service"
+    },
+    {
+      "pid": 6300,
+      "parentPid": 1,
+      "name": "node",
+      "executablePath": "/usr/bin/node",
+      "commandLine": "node /home/dev/alpha-preview/server.js"
+    },
+    {
+      "pid": 6500,
+      "parentPid": 1,
+      "name": "tool",
+      "executablePath": null,
+      "commandLine": "tool /home/dev/alpha/nested/x"
+    },
+    { "pid": 6400, "parentPid": 2, "name": "kworker", "executablePath": null, "commandLine": null }
+  ],
+  "listeners": [
+    { "pid": 4100, "address": "127.0.0.1", "port": 4173 },
+    { "pid": 6300, "address": "0.0.0.0", "port": 8080 },
+    { "pid": 7000, "address": "::1", "port": 9000 }
+  ],
+  "limitations": []
+}
