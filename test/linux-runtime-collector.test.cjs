@@ -1,3 +1,5 @@
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fixture = require('./fixtures/linux-runtime-scan.json');
@@ -143,4 +145,93 @@ test('Linux matching is case-sensitive', () => {
     platform: 'linux',
   });
   assert.equal(result.runtimes.length, 0);
+});
+
+test('IPv6 addresses are compressed in place and IPv4-mapped addresses become dotted quads', () => {
+  const row = (host, inode) =>
+    `   0: ${host}:1092 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 ${inode} 1 0\n`;
+  const header = 'sl local_address rem_address st\n';
+  assert.deepEqual(
+    parseProcNetTcp(
+      header +
+        row('000080FE000000000000000001000000', 1) +
+        row('0000000000000000FFFF00000100007F', 2),
+    ).map(({ address }) => address),
+    ['fe80::1', '127.0.0.1'],
+  );
+});
+
+test('a socket shared by several processes is reported for each holder', async () => {
+  const data = await collectLinuxRuntimeData({
+    platform: 'linux',
+    fsApi: fakeFs(
+      {
+        '/proc/10/stat': '10 (parent) S 1 10',
+        '/proc/11/stat': '11 (worker) S 10 10',
+        '/proc/net/tcp': tcp,
+        '/proc/net/tcp6': '',
+      },
+      { '/proc/10/fd/3': 'socket:[11111]', '/proc/11/fd/3': 'socket:[11111]' },
+      { '/proc': ['10', '11'], '/proc/10/fd': ['3'], '/proc/11/fd': ['3'] },
+    ),
+  });
+  assert.deepEqual(
+    data.listeners.map(({ pid, port }) => [pid, port]),
+    [
+      [10, 4242],
+      [11, 4242],
+    ],
+  );
+  // The 8080 listener (inode 22222) has no visible owner.
+  assert.match(data.limitations.join(' '), /listener ownership is partial/);
+});
+
+test('processes in other network namespaces and a hidepid /proc mount are reported', async () => {
+  const data = await collectLinuxRuntimeData({
+    platform: 'linux',
+    fsApi: fakeFs(
+      {
+        '/proc/10/stat': '10 (a) S 1 10',
+        '/proc/11/stat': '11 (b) S 1 11',
+        '/proc/net/tcp': '',
+        '/proc/net/tcp6': '',
+        '/proc/mounts': 'proc /proc proc rw,nosuid,hidepid=2 0 0\n',
+      },
+      {
+        '/proc/self/ns/net': 'net:[1]',
+        '/proc/10/ns/net': 'net:[1]',
+        '/proc/11/ns/net': 'net:[2]',
+      },
+      { '/proc': ['10', '11'] },
+    ),
+  });
+  assert.equal(data.limitations.length, 2);
+  assert.match(data.limitations[0], /^1 processes run in another network namespace/);
+  assert.match(data.limitations[1], /hidepid/);
+});
+
+test('unreadable file descriptors alone do not claim partial listener ownership', async () => {
+  const data = await collectLinuxRuntimeData({
+    platform: 'linux',
+    fsApi: fakeFs(
+      { '/proc/10/stat': '10 (a) S 1 10', '/proc/net/tcp': '', '/proc/net/tcp6': '' },
+      {},
+      { '/proc': ['10'] },
+    ),
+  });
+  assert.deepEqual(data.limitations, []);
+});
+
+test('real /proc/net/tcp and tcp6 output captured on Linux decodes to the listeners that were opened', () => {
+  const dir = path.join(__dirname, 'fixtures', 'linux-captured');
+  const read = (name) => fs.readFileSync(path.join(dir, name), 'utf8');
+  const sockets = [
+    ...parseProcNetTcp(read('proc-net-tcp.txt')),
+    ...parseProcNetTcp(read('proc-net-tcp6.txt')),
+  ];
+  const has = (address, port) =>
+    sockets.some((socket) => socket.address === address && socket.port === port);
+  assert.ok(has('127.0.0.1', 4242));
+  assert.ok(has('::1', 4343));
+  assert.ok(has('::', 4444));
 });

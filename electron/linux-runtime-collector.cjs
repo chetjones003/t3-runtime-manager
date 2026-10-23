@@ -1,6 +1,7 @@
 const fs = require('node:fs/promises');
 
 const LISTEN_STATE = '0A';
+const READ_BATCH_SIZE = 64;
 
 function parseProcStat(text) {
   // The command name is parenthesised and may itself contain spaces or parentheses.
@@ -42,6 +43,9 @@ function parseHostAddress(hex) {
   );
   if (bytes.length === 4) return bytes.join('.');
   if (bytes.length !== 16) return null;
+  // IPv4-mapped addresses (::ffff:a.b.c.d) are shown as the plain IPv4 address.
+  if (bytes.slice(0, 10).every((byte) => byte === 0) && bytes[10] === 255 && bytes[11] === 255)
+    return bytes.slice(12).join('.');
   const groups = [];
   for (let index = 0; index < 16; index += 2) groups.push((bytes[index] << 8) | bytes[index + 1]);
   return formatIpv6(groups);
@@ -87,34 +91,46 @@ async function collectLinuxRuntimeData({ platform = process.platform, fsApi = fs
   }
 
   const limitations = [];
-  const processes = [];
-  const socketOwners = new Map();
-  let unreadableDescriptors = 0;
-  for (const pid of pids) {
+  const ownNamespace = await readOptional(fsApi.readlink, '/proc/self/ns/net');
+  const readProcess = async (pid) => {
     const stat = parseProcStat((await readOptional(readText, `/proc/${pid}/stat`)) ?? '');
-    if (!stat) continue; // The process exited during the scan.
+    if (!stat) return null; // The process exited during the scan.
     const cmdline = await readOptional(readText, `/proc/${pid}/cmdline`);
-    processes.push({
-      pid,
-      parentPid: stat.parentPid,
-      name: stat.name,
-      executablePath: (await readOptional(fsApi.readlink, `/proc/${pid}/exe`)) || null,
-      commandLine: cmdline === null ? null : parseCmdline(cmdline),
-    });
-
-    let descriptors = null;
-    try {
-      descriptors = await fsApi.readdir(`/proc/${pid}/fd`);
-    } catch (error) {
-      if (error?.code !== 'ENOENT') unreadableDescriptors += 1;
-    }
+    const namespace = await readOptional(fsApi.readlink, `/proc/${pid}/ns/net`);
+    const descriptors = await readOptional(fsApi.readdir, `/proc/${pid}/fd`);
+    const inodes = [];
     for (const descriptor of descriptors ?? []) {
       const target = await readOptional(fsApi.readlink, `/proc/${pid}/fd/${descriptor}`);
       const inode = /^socket:\[(\d+)\]$/.exec(target ?? '')?.[1];
-      if (inode && !socketOwners.has(Number(inode))) socketOwners.set(Number(inode), pid);
+      if (inode) inodes.push(Number(inode));
     }
-  }
-  if (!processes.length) throw new Error('The Linux process scan could not complete.');
+    return {
+      process: {
+        pid,
+        parentPid: stat.parentPid,
+        name: stat.name,
+        executablePath: (await readOptional(fsApi.readlink, `/proc/${pid}/exe`)) || null,
+        commandLine: cmdline === null ? null : parseCmdline(cmdline),
+      },
+      inodes,
+      inOtherNamespace: Boolean(ownNamespace && namespace && namespace !== ownNamespace),
+    };
+  };
+
+  const results = [];
+  for (let start = 0; start < pids.length; start += READ_BATCH_SIZE)
+    results.push(
+      ...(await Promise.all(pids.slice(start, start + READ_BATCH_SIZE).map(readProcess))),
+    );
+  const scanned = results.filter(Boolean);
+  if (!scanned.length) throw new Error('The Linux process scan could not complete.');
+  const processes = scanned.map(({ process: record }) => record);
+
+  // A socket inherited by several processes is reported for every process that holds it.
+  const socketOwners = new Map();
+  for (const { process: record, inodes } of scanned)
+    for (const inode of inodes)
+      socketOwners.set(inode, [...(socketOwners.get(inode) ?? []), record.pid]);
 
   const listeners = [];
   let unownedListeners = 0;
@@ -126,16 +142,24 @@ async function collectLinuxRuntimeData({ platform = process.platform, fsApi = fs
       continue;
     }
     for (const socket of parseProcNetTcp(text)) {
-      const pid = socketOwners.get(socket.inode);
-      if (pid === undefined) unownedListeners += 1;
-      else listeners.push({ pid, address: socket.address, port: socket.port });
+      const owners = socketOwners.get(socket.inode) ?? [];
+      if (!owners.length) unownedListeners += 1;
+      for (const pid of owners) listeners.push({ pid, address: socket.address, port: socket.port });
     }
   }
   if (unreadableTables) limitations.push('Linux TCP listener data is unavailable for this scan.');
-  if (unownedListeners || unreadableDescriptors)
+  if (unownedListeners)
     limitations.push(
-      'Linux TCP listener ownership is partial: processes owned by other users or in other namespaces may be hidden.',
+      'Linux TCP listener ownership is partial: some listening sockets belong to processes this user cannot inspect.',
     );
+  const otherNamespaces = scanned.filter(({ inOtherNamespace }) => inOtherNamespace).length;
+  if (otherNamespaces)
+    limitations.push(
+      `${otherNamespaces} processes run in another network namespace, so their listening sockets are not visible to this scan.`,
+    );
+  const mounts = (await readOptional(readText, '/proc/mounts')) ?? '';
+  if (/^proc \/proc proc \S*\bhidepid=(?:1|2|invisible|noaccess)\b/m.test(mounts))
+    limitations.push("/proc is mounted with hidepid, so other users' processes are not visible.");
 
   return { processes, listeners, limitations };
 }
