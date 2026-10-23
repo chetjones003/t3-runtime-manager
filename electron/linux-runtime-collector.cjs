@@ -118,18 +118,20 @@ async function collectLinuxRuntimeData({ platform = process.platform, fsApi = fs
 
   const listeners = [];
   let unownedListeners = 0;
-  let readableTables = 0;
+  let unreadableTables = 0;
   for (const table of ['/proc/net/tcp', '/proc/net/tcp6']) {
     const text = await readOptional(readText, table);
-    if (text === null) continue;
-    readableTables += 1;
+    if (text === null) {
+      unreadableTables += 1;
+      continue;
+    }
     for (const socket of parseProcNetTcp(text)) {
       const pid = socketOwners.get(socket.inode);
       if (pid === undefined) unownedListeners += 1;
       else listeners.push({ pid, address: socket.address, port: socket.port });
     }
   }
-  if (!readableTables) limitations.push('Linux TCP listener data is unavailable for this scan.');
+  if (unreadableTables) limitations.push('Linux TCP listener data is unavailable for this scan.');
   if (unownedListeners || unreadableDescriptors)
     limitations.push(
       'Linux TCP listener ownership is partial: processes owned by other users or in other namespaces may be hidden.',

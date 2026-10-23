@@ -87,8 +87,9 @@ test('the collector reads /proc, maps socket inodes to owners and reports partia
     { pid: 5000, parentPid: 1, name: 'other', executablePath: null, commandLine: null },
   ]);
   assert.deepEqual(data.listeners, [{ pid: 4100, address: '127.0.0.1', port: 4242 }]);
-  assert.equal(data.limitations.length, 1);
-  assert.match(data.limitations[0], /listener ownership is partial/);
+  assert.equal(data.limitations.length, 2);
+  assert.match(data.limitations[0], /listener data is unavailable/);
+  assert.match(data.limitations[1], /listener ownership is partial/);
 });
 
 test('the collector throws when /proc is unreadable and is inert off Linux', async () => {
