@@ -16,9 +16,9 @@ const { normalizeRuntimeScan } = require('../src/runtime-discovery.cjs');
 const { groupRuntimeApps } = require('../src/thread-apps.cjs');
 const { createT3Service } = require('./t3-service.cjs');
 const { createTakeControlService } = require('./take-control-service.cjs');
+const { registerRuntimePreviewIpc } = require('./runtime-preview-ipc.cjs');
 
 let mainWindow;
-const pendingDisplaySources = new Map();
 
 function validateWorktrees(worktrees) {
   if (!Array.isArray(worktrees)) throw new Error('Invalid worktree list: expected an array.');
@@ -41,6 +41,15 @@ function validateWorktrees(worktrees) {
 }
 
 const takeControl = createTakeControlService({ openExternal: (url) => shell.openExternal(url) });
+const runtimePreviewIpc = registerRuntimePreviewIpc({
+  ipcMain,
+  takeControl,
+  desktopCapturer,
+  getMainWindow: () => mainWindow,
+  ownWindowHandle,
+  assertTrustedSender,
+  isTrustedCockpitUrl,
+});
 
 ipcMain.handle('runtime:take-control', (event, runtimeId) => {
   assertTrustedSender(event, 'Take Control');
@@ -111,31 +120,6 @@ function isTrustedCockpitUrl(senderUrl) {
     return false;
   }
 }
-
-ipcMain.handle('runtime:preview', async (event, runtimeId) => {
-  assertTrustedSender(event, 'Runtime preview');
-  if (typeof runtimeId !== 'string' || runtimeId.length > 200) throw new Error('Invalid runtime.');
-
-  const preview = await takeControl.getPreview(runtimeId);
-  if (preview.kind !== 'window') return preview;
-  // Mirroring this window into itself would only show an endless tunnel of itself.
-  if (preview.handle === ownWindowHandle()) return { kind: 'self' };
-
-  let source;
-  // A hidden Qt window may need a moment after ShowWindow before Windows exposes it
-  // through the desktop capture API.
-  for (let attempt = 0; attempt < 5 && !source; attempt += 1) {
-    const sources = await desktopCapturer.getSources({
-      types: ['window'],
-      thumbnailSize: { width: 0, height: 0 },
-    });
-    source = sources.find((candidate) => candidate.id.startsWith(`window:${preview.handle}:`));
-    if (!source && attempt < 4) await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  if (!source) return { kind: 'none' };
-  pendingDisplaySources.set(event.sender.id, source);
-  return { kind: 'window', sourceId: source.id };
-});
 
 function assertTrustedSender(event, feature) {
   const senderUrl = event.senderFrame?.url;
@@ -287,24 +271,7 @@ app.whenReady().then(() => {
     ),
   );
   session.defaultSession.setDisplayMediaRequestHandler(
-    (request, callback) => {
-      if (
-        !mainWindow ||
-        request.frame !== mainWindow.webContents.mainFrame ||
-        !isTrustedCockpitUrl(request.securityOrigin) ||
-        !request.videoRequested
-      ) {
-        callback(null);
-        return;
-      }
-      const source = mainWindow && pendingDisplaySources.get(mainWindow.webContents.id);
-      if (mainWindow) pendingDisplaySources.delete(mainWindow.webContents.id);
-      if (!source) {
-        callback(null);
-        return;
-      }
-      callback({ video: source });
-    },
+    runtimePreviewIpc.handleDisplayMediaRequest,
     { useSystemPicker: false },
   );
   createWindow();
