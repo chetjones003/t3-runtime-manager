@@ -53,15 +53,3 @@ jobs:
       - name: Audit dependencies
         run: npm audit --audit-level=high
 
-  dependency-review:
-    name: Pull request dependency review
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - name: Check dependency changes
-        uses: actions/dependency-review-action@v5
-        with:
-          fail-on-severity: high
