@@ -101,3 +101,135 @@ test('the scan excludes a path that only shares a worktree prefix', () => {
   assert.deepEqual(result.runtimes, []);
   assert.equal(result.unmatched[0].process.pid, 9);
 });
+
+const proc = (pid, parentPid, name, executablePath, commandLine) => ({
+  pid,
+  parentPid,
+  name,
+  executablePath,
+  commandLine,
+});
+
+test('direct path matches report direct confidence and lineage helpers report weaker confidence', () => {
+  const result = normalizeRuntimeScan({ ...fixture, platform: 'win32' });
+  const vite = result.runtimes.find(({ process }) => process.pid === 4100);
+
+  assert.equal(vite.confidence, 'direct');
+  assert.deepEqual(
+    vite.helpers.map(({ pid, confidence }) => [pid, confidence]),
+    [
+      [4101, 'direct'],
+      [4102, 'lineage'],
+    ],
+  );
+  assert.deepEqual(vite.helpers[1].evidence, ['Child process lineage']);
+});
+
+test('ambiguous candidates list the conflicting worktrees and are not assigned', () => {
+  const result = normalizeRuntimeScan({
+    worktrees: [
+      { id: 'one', path: 'C:\\dev\\app' },
+      { id: 'two', path: 'C:\\dev\\app\\nested' },
+      { id: 'three', path: 'C:\\dev\\other' },
+    ],
+    processes: [proc(12, 1, 'app.exe', 'C:\\dev\\app\\nested\\app.exe', null)],
+    listeners: [],
+    platform: 'win32',
+  });
+
+  assert.deepEqual(result.runtimes, []);
+  assert.equal(result.unmatched[0].reason, 'ambiguous-worktree');
+  assert.equal(result.unmatched[0].confidence, 'ambiguous');
+  assert.deepEqual(result.unmatched[0].candidateWorktreeIds, ['one', 'two']);
+});
+
+test('unmatched helper processes group under the app process instead of becoming roots', () => {
+  const result = normalizeRuntimeScan({
+    worktrees: [{ id: 'one', path: 'C:\\dev\\app' }],
+    processes: [
+      proc(50, 1, 'vite.exe', 'C:\\tools\\vite.exe', 'vite'),
+      proc(51, 50, 'esbuild.exe', 'C:\\tools\\esbuild.exe', 'esbuild'),
+      proc(52, 51, 'worker.exe', null, null),
+      proc(60, 1, 'cmd.exe', 'C:\\Windows\\System32\\cmd.exe', 'cmd'),
+      proc(61, 60, 'server.exe', 'C:\\tools\\server.exe', 'server'),
+    ],
+    listeners: [
+      { pid: 50, address: '127.0.0.1', port: 5173 },
+      { pid: 51, address: '127.0.0.1', port: 5174 },
+      { pid: 61, address: '0.0.0.0', port: 8080 },
+    ],
+    platform: 'win32',
+  });
+
+  assert.deepEqual(
+    result.unmatched.map(({ process, helpers, confidence }) => ({
+      pid: process.pid,
+      helpers: helpers.map(({ pid }) => pid),
+      confidence,
+    })),
+    [
+      { pid: 50, helpers: [51, 52], confidence: 'low' },
+      { pid: 61, helpers: [], confidence: 'low' },
+    ],
+  );
+  assert.deepEqual(result.unmatched[0].helpers[0].listeners, [
+    { address: '127.0.0.1', port: 5174 },
+  ]);
+});
+
+test('a listener is a browser dev server only when process metadata says so', () => {
+  const result = normalizeRuntimeScan({
+    worktrees: [],
+    processes: [
+      proc(1, 0, 'node.exe', 'C:\\node.exe', 'node vite.js'),
+      proc(2, 0, 'mystery.exe', null, null),
+    ],
+    listeners: [
+      { pid: 1, address: '::', port: 1 },
+      { pid: 2, address: '::', port: 2 },
+    ],
+    platform: 'win32',
+  });
+
+  assert.deepEqual(
+    result.unmatched.map(({ kind, kindLabel }) => [kind, kindLabel]),
+    [
+      ['browser-dev-server', 'Browser dev server'],
+      ['process', 'Listening process'],
+    ],
+  );
+});
+
+test('missing fields are reported per process and the scan state reflects partial results', () => {
+  const partial = normalizeRuntimeScan({
+    worktrees: [],
+    processes: [proc(2, 0, 'mystery.exe', null, null)],
+    listeners: [{ pid: 2, address: '::', port: 2 }],
+    platform: 'win32',
+  });
+  assert.deepEqual(partial.unmatched[0].process.missingFields, ['executable path', 'command line']);
+  assert.equal(partial.state, 'partial');
+
+  const complete = normalizeRuntimeScan({
+    worktrees: [],
+    processes: [proc(3, 0, 'a.exe', 'C:\\a.exe', 'a')],
+    listeners: [],
+    platform: 'win32',
+  });
+  assert.equal(complete.state, 'complete');
+  assert.deepEqual(complete.unmatched, []);
+});
+
+test('unrelated system processes stay hidden and evidence never contains command lines', () => {
+  const result = normalizeRuntimeScan({
+    worktrees: [{ id: 'one', path: 'C:\\dev\\app' }],
+    processes: [
+      proc(4, 0, 'svchost.exe', 'C:\\Windows\\svchost.exe', 'svchost -k secret-token'),
+      proc(5, 0, 'node.exe', 'C:\\node.exe', 'node C:\\dev\\app\\x.js --key=secret-token'),
+    ],
+    listeners: [],
+    platform: 'win32',
+  });
+  assert.deepEqual(result.unmatched, []);
+  assert.equal(JSON.stringify(result).includes('secret-token'), false);
+});
