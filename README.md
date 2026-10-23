@@ -10,7 +10,7 @@ Install dependencies with `npm install`, then start the desktop app with `npm ru
 
 The cockpit still uses sample T3 thread and worktree records. On Windows and macOS, **Refresh runtimes** performs a read-only process and TCP listener scan and shows runtime groups with direct executable-path or command-line evidence for those worktrees. Raw command lines stay in Electron's main process and are omitted from the response. The latest scan remains in memory for the current app session.
 
-macOS and Linux collectors, unmatched-candidate presentation, T3 synchronization, remembered workspace settings, process control, builds, launches, and window embedding are not connected yet.
+A Linux collector, T3 synchronization, remembered workspace settings, process control, builds, launches, and window embedding are not connected yet.
 
 ## Verify runtime discovery
 
