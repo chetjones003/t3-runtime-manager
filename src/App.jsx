@@ -223,6 +223,7 @@ function RuntimePreview({ runtime, scannedAt }) {
         const active = await navigator.mediaDevices.getUserMedia({
           audio: false,
           video: {
+            cursor: 'never',
             mandatory: {
               chromeMediaSource: 'desktop',
               chromeMediaSourceId: result.sourceId,
