@@ -107,9 +107,12 @@ function groupRuntimeApps({ runtimes, processes, listeners, platform }) {
     if (!process || AGENT_NAME.test(process.name ?? '')) continue;
     const root = launchRoot(Number(process.pid), processesByPid);
     const key = `${runtime.worktreeId}\u0000${root.pid}`;
-    const group =
-      groups.get(key) ??
-      { root, worktreeId: runtime.worktreeId, evidence: new Set(), matchedPids: new Set() };
+    const group = groups.get(key) ?? {
+      root,
+      worktreeId: runtime.worktreeId,
+      evidence: new Set(),
+      matchedPids: new Set(),
+    };
     runtime.evidence.forEach((item) => group.evidence.add(item));
     group.matchedPids.add(Number(process.pid));
     groups.set(key, group);

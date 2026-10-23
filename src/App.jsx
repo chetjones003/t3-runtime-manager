@@ -353,11 +353,7 @@ function RuntimePreview({ runtime }) {
   }, [preview.kind, runtime.id]);
 
   return (
-    <section
-      ref={previewRef}
-      className="runtime-preview"
-      aria-label={'Preview of ' + runtime.name}
-    >
+    <section ref={previewRef} className="runtime-preview" aria-label={'Preview of ' + runtime.name}>
       <div className="preview-bar">
         <span className="eyebrow">PREVIEW</span>
         <span className="preview-source">{runtime.name}</span>
@@ -858,9 +854,7 @@ export default function App() {
                       key={runtime.id}
                     />
                   ))}
-                {!scanning && previewed && (
-                  <RuntimePreview runtime={previewed} />
-                )}
+                {!scanning && previewed && <RuntimePreview runtime={previewed} />}
               </div>
               {scan?.limitations.length > 0 && (
                 <div className="scan-limitations">
@@ -877,8 +871,8 @@ export default function App() {
 
       <footer className="bottom-note">
         <span className="status-light" /> Threads refresh from T3 every 5 seconds
-        <span className="footer-separator">·</span> Take Control brings the selected app window forward;
-        build, start and stop are not connected
+        <span className="footer-separator">·</span> Take Control brings the selected app window
+        forward; build, start and stop are not connected
       </footer>
     </div>
   );

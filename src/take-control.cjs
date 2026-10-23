@@ -35,9 +35,10 @@ function planTakeControl(runtime) {
   const url = listeners.map(loopbackUrl).find(Boolean) ?? null;
   // A preview must belong to the app represented by this runtime. Searching helper
   // processes can embed a shell or terminal window into an unrelated app card.
-  const windowTargets = runtime.process.windowTitle || runtime.kind === 'desktop-app'
-    ? processes.filter((target) => target.pid === runtime.process.pid).slice(0, 1)
-    : [];
+  const windowTargets =
+    runtime.process.windowTitle || runtime.kind === 'desktop-app'
+      ? processes.filter((target) => target.pid === runtime.process.pid).slice(0, 1)
+      : [];
   return { targets: processes.slice(0, MAX_TARGETS), windowTargets, url };
 }
 

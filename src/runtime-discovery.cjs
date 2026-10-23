@@ -54,7 +54,10 @@ function classifyRuntime(process, ownedListeners, platform) {
       metadata,
     );
   if (isDevServer) return { kind: 'browser-dev-server', label: 'Browser dev server' };
-  const executableName = path.basename(process.executablePath || process.name || '').toLowerCase();
+  const executableName = (process.executablePath || process.name || '')
+    .split(/[\\/]/)
+    .pop()
+    .toLowerCase();
   if (
     platform === 'win32' &&
     /^(cl|link|lib|rc|mt|msbuild|cmake|ninja)\.exe$/.test(executableName)
