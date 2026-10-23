@@ -134,3 +134,24 @@ test('macOS scans use the shared matching, classification and grouping', () => {
   assert.ok(result.limitations.some((text) => text.includes('Executable path metadata')));
   assert.ok(result.limitations.some((text) => text.includes('listening endpoint owners')));
 });
+
+test('macOS matching ignores case and resolves the /private symlink aliases', () => {
+  const result = normalizeRuntimeScan({
+    worktrees: [{ id: 'alpha', path: '/tmp/Alpha' }],
+    processes: [
+      {
+        pid: 10,
+        parentPid: 1,
+        name: 'tool',
+        executablePath: '/private/tmp/alpha/bin/tool',
+        commandLine: null,
+      },
+    ],
+    listeners: [],
+    platform: 'darwin',
+  });
+  assert.deepEqual(
+    result.runtimes.map(({ worktreeId }) => worktreeId),
+    ['alpha'],
+  );
+});

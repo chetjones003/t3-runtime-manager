@@ -6,6 +6,12 @@ function normalizePath(value, platform) {
       .replaceAll('/', '\\')
       .replace(/[\\]+$/, '')
       .toLowerCase();
+  if (platform === 'darwin')
+    // The default APFS volume is case-insensitive, and /tmp, /var and /etc are symlinks into /private.
+    return value
+      .replace(/[\\/]+$/, '')
+      .replace(/^\/private(?=\/(?:tmp|var|etc)(?:\/|$))/, '')
+      .toLowerCase();
   return value.replace(/[\\/]+$/, '');
 }
 
