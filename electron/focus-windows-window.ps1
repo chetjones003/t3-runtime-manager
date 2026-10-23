@@ -24,6 +24,8 @@ public static class WindowFocus {
   [DllImport("user32.dll")] private static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
   [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
   [DllImport("user32.dll")] private static extern bool ScreenToClient(IntPtr hwnd, ref POINT point);
+  [DllImport("user32.dll")] private static extern IntPtr ChildWindowFromPointEx(IntPtr hwnd, POINT point, uint flags);
+  [DllImport("user32.dll")] private static extern int MapWindowPoints(IntPtr from, IntPtr to, ref POINT point, uint count);
   [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
   [DllImport("user32.dll", EntryPoint = "PostMessageW")] private static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
   [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
@@ -145,19 +147,28 @@ public static class WindowFocus {
       };
       POINT screenPoint = point;
       if (!ScreenToClient(hwnd, ref point)) return false;
-      uint clientPacked = ((uint)(ushort)point.Y << 16) | (ushort)point.X;
+      // PostMessage does not perform normal mouse hit testing. Forward to the deepest child
+      // control under the captured point, converting coordinates at each HWND boundary.
+      IntPtr target = hwnd;
+      POINT targetPoint = point;
+      for (int depth = 0; depth < 8; depth++) {
+        IntPtr child = ChildWindowFromPointEx(target, targetPoint, 0x0001 | 0x0002 | 0x0004);
+        if (child == IntPtr.Zero || child == target) break;
+        MapWindowPoints(target, child, ref targetPoint, 1);
+        target = child;
+      }
+      uint clientPacked = ((uint)(ushort)targetPoint.Y << 16) | (ushort)targetPoint.X;
       IntPtr clientPosition = (IntPtr)(long)clientPacked;
       if (type == "wheel") {
         uint wheelPacked = ((uint)(ushort)screenPoint.Y << 16) | (ushort)screenPoint.X;
-        IntPtr wheelPosition = (IntPtr)(long)wheelPacked;
-        return PostMessage(hwnd, 0x020A, (IntPtr)(delta << 16), wheelPosition);
+        return PostMessage(target, 0x020A, (IntPtr)(delta << 16), (IntPtr)(long)wheelPacked);
       }
-      if (type == "move") return PostMessage(hwnd, 0x0200, (IntPtr)buttons, clientPosition);
+      if (type == "move") return PostMessage(target, 0x0200, (IntPtr)buttons, clientPosition);
       uint message = type == "down" ? (button == "right" ? 0x0204u : 0x0201u) :
         type == "up" ? (button == "right" ? 0x0205u : 0x0202u) : 0;
       if (message == 0) return false;
       IntPtr flags = type == "down" ? (IntPtr)(button == "right" ? 0x0002 : 0x0001) : IntPtr.Zero;
-      return PostMessage(hwnd, message, flags, clientPosition);
+      return PostMessage(target, message, flags, clientPosition);
     } finally {
       if (previousDpiContext != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpiContext);
     }
