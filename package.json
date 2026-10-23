@@ -1,0 +1,23 @@
+{
+  "name": "thread-app-manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "React and Electron prototype for managing applications associated with agent worktrees.",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:127.0.0.1:5178 && node scripts/run-electron.cjs --dev\"",
+    "build": "vite build",
+    "desktop": "node scripts/run-electron.cjs"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^9.2.0",
+    "electron": "^45.0.0",
+    "vite": "^6.4.0",
+    "wait-on": "^8.0.4"
+  }
+}
