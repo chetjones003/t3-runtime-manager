@@ -9,10 +9,11 @@ function makePreviewIpc({
   preview,
   ownHandle = null,
   mainWindowAvailable = true,
+  mainWindowUrl = 'file:///app/dist/index.html',
 } = {}) {
   const handlers = new Map();
   const calls = { sources: [], display: [] };
-  const webContents = { id: 7, mainFrame: {} };
+  const webContents = { id: 7, mainFrame: {}, getURL: () => mainWindowUrl };
   const mainWindow = { webContents };
   let displayHandler;
 
@@ -58,7 +59,7 @@ test('preview IPC resolves a runtime window and supplies that source to display 
 
   const capture = await previewIpc.requestDisplay({
     frame: previewIpc.webContents.mainFrame,
-    securityOrigin: 'file:///app/dist/index.html',
+    securityOrigin: 'file:///',
     videoRequested: true,
   });
   assert.deepEqual(capture, { video: { id: 'window:4242:0' } });
@@ -93,7 +94,7 @@ test('renderer capture uses browser-safe constraints and captures the IPC-select
       captureOptions.push(options);
       const capture = await previewIpc.requestDisplay({
         frame: previewIpc.webContents.mainFrame,
-        securityOrigin: 'file:///app/dist/index.html',
+        securityOrigin: 'file:///',
         videoRequested: true,
       });
       assert.ok(capture.video);
@@ -155,7 +156,7 @@ test('renderer keeps preview startup usable when cursor constraints are unsuppor
   ]);
 });
 
-test('display capture rejects untrusted requests and consumes an approved source once', async () => {
+test('display capture rejects untrusted requests and serves the selected source to repeat requests', async () => {
   const previewIpc = makePreviewIpc();
   await previewIpc.invoke('runtime:preview', { sender: { id: 7 } }, 'process-100');
 
@@ -173,8 +174,10 @@ test('display capture rejects untrusted requests and consumes an approved source
   });
   assert.equal(noVideo, null);
 
-  const untrusted = await previewIpc.requestDisplay({
-    frame: previewIpc.webContents.mainFrame,
+  const untrustedPage = makePreviewIpc({ mainWindowUrl: 'https://untrusted.example' });
+  await untrustedPage.invoke('runtime:preview', { sender: { id: 7 } }, 'process-100');
+  const untrusted = await untrustedPage.requestDisplay({
+    frame: untrustedPage.webContents.mainFrame,
     securityOrigin: 'https://untrusted.example',
     videoRequested: true,
   });
@@ -187,15 +190,17 @@ test('display capture rejects untrusted requests and consumes an approved source
   });
   assert.deepEqual(approved, { video: { id: 'window:4242:0' } });
 
+  // React StrictMode starts the preview twice; the second capture must not be refused.
   const secondUse = await previewIpc.requestDisplay({
     frame: previewIpc.webContents.mainFrame,
     securityOrigin: 'file:///app/dist/index.html',
     videoRequested: true,
   });
-  assert.equal(secondUse, null);
+  assert.deepEqual(secondUse, { video: { id: 'window:4242:0' } });
 
-  const missingSource = await previewIpc.requestDisplay({
-    frame: previewIpc.webContents.mainFrame,
+  const fresh = makePreviewIpc();
+  const missingSource = await fresh.requestDisplay({
+    frame: fresh.webContents.mainFrame,
     securityOrigin: 'file:///app/dist/index.html',
     videoRequested: true,
   });
@@ -235,4 +240,44 @@ test('preview IPC rejects malformed runtime ids and display requests after the m
     videoRequested: true,
   });
   assert.equal(result, null);
+});
+
+test('overlapping preview starts both receive a capture stream', async () => {
+  const previewIpc = makePreviewIpc();
+  const start = () =>
+    startRuntimePreview('process-100', {
+      getRuntimePreview: (runtimeId) =>
+        previewIpc.invoke('runtime:preview', { sender: { id: 7 } }, runtimeId),
+      getDisplayMedia: async () => {
+        const capture = await previewIpc.requestDisplay({
+          frame: previewIpc.webContents.mainFrame,
+          securityOrigin: 'file:///',
+          videoRequested: true,
+        });
+        if (!capture) throw new Error('Invalid capture constraints');
+        return { getVideoTracks: () => [] };
+      },
+    });
+
+  const [first, second] = await Promise.all([start(), start()]);
+  assert.ok(first.stream);
+  assert.ok(second.stream);
+});
+
+test('a preview without a window clears the previously selected source', async () => {
+  const preview = { kind: 'window', handle: '4242' };
+  const previewIpc = makePreviewIpc({ preview });
+  const event = { sender: { id: 7 } };
+  const request = {
+    frame: previewIpc.webContents.mainFrame,
+    securityOrigin: 'file:///',
+    videoRequested: true,
+  };
+
+  await previewIpc.invoke('runtime:preview', event, 'process-100');
+  assert.deepEqual(await previewIpc.requestDisplay(request), { video: { id: 'window:4242:0' } });
+
+  preview.kind = 'page';
+  await previewIpc.invoke('runtime:preview', event, 'process-200');
+  assert.equal(await previewIpc.requestDisplay(request), null);
 });

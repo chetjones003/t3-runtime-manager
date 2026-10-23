@@ -110,9 +110,10 @@ function ownWindowHandle() {
 }
 
 function isTrustedCockpitUrl(senderUrl) {
-  if (app.isPackaged) {
-    return senderUrl === pathToFileURL(path.join(__dirname, '../dist/index.html')).href;
-  }
+  const packagedCockpitUrl = pathToFileURL(path.join(__dirname, '../dist/index.html')).href;
+  if (senderUrl === packagedCockpitUrl) return true;
+  if (app.isPackaged) return false;
+
   try {
     const url = new URL(senderUrl);
     return url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.port === '5178';
@@ -256,11 +257,14 @@ function createWindow() {
 app.whenReady().then(() => {
   if (process.platform === 'win32') app.setAppUserModelId('com.t3code.runtimemanager');
 
-  const mayCaptureDisplay = (webContents, permission, requestingUrl, isMainFrame) =>
-    permission === 'display-capture' &&
-    isMainFrame === true &&
-    Boolean(mainWindow && webContents === mainWindow.webContents) &&
-    isTrustedCockpitUrl(requestingUrl);
+  const mayCaptureDisplay = (webContents, permission, requestingUrl, isMainFrame) => {
+    return (
+      permission === 'display-capture' &&
+      isMainFrame === true &&
+      Boolean(mainWindow && webContents === mainWindow.webContents) &&
+      isTrustedCockpitUrl(requestingUrl)
+    );
+  };
 
   session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) =>
     mayCaptureDisplay(webContents, permission, details?.requestingUrl, details?.isMainFrame),

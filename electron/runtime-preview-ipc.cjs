@@ -8,7 +8,9 @@ function registerRuntimePreviewIpc({
   isTrustedCockpitUrl,
   delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
 }) {
-  const pendingDisplaySources = new Map();
+  // The window chosen by the latest preview request, per renderer. It is kept (not consumed)
+  // so overlapping capture requests, such as React StrictMode's double effect, both succeed.
+  const selectedDisplaySources = new Map();
 
   ipcMain.handle('runtime:preview', async (event, runtimeId) => {
     assertTrustedSender(event, 'Runtime preview');
@@ -17,9 +19,15 @@ function registerRuntimePreviewIpc({
     }
 
     const preview = await takeControl.getPreview(runtimeId);
-    if (preview.kind !== 'window') return preview;
+    if (preview.kind !== 'window') {
+      selectedDisplaySources.delete(event.sender.id);
+      return preview;
+    }
     // Mirroring the manager window would only display an endless tunnel of itself.
-    if (preview.handle === ownWindowHandle()) return { kind: 'self' };
+    if (preview.handle === ownWindowHandle()) {
+      selectedDisplaySources.delete(event.sender.id);
+      return { kind: 'self' };
+    }
 
     let source;
     // Hidden Qt windows may need a moment before Windows exposes them to desktop capture.
@@ -31,24 +39,24 @@ function registerRuntimePreviewIpc({
       source = sources.find((candidate) => candidate.id.startsWith(`window:${preview.handle}:`));
       if (!source && attempt < 4) await delay(200);
     }
-    if (!source) return { kind: 'none' };
-    pendingDisplaySources.set(event.sender.id, source);
+    if (!source) {
+      selectedDisplaySources.delete(event.sender.id);
+      return { kind: 'none' };
+    }
+    selectedDisplaySources.set(event.sender.id, source);
     return { kind: 'window', sourceId: source.id };
   });
 
   function handleDisplayMediaRequest(request, callback) {
     const mainWindow = getMainWindow();
-    if (
-      !mainWindow ||
-      request.frame !== mainWindow.webContents.mainFrame ||
-      !isTrustedCockpitUrl(request.securityOrigin) ||
-      !request.videoRequested
-    ) {
+    const frameMatches = Boolean(mainWindow && request.frame === mainWindow.webContents.mainFrame);
+    const mainFrameUrl = mainWindow?.webContents.getURL();
+    const cockpitUrlTrusted = isTrustedCockpitUrl(mainFrameUrl);
+    if (!mainWindow || !frameMatches || !cockpitUrlTrusted || !request.videoRequested) {
       callback(null);
       return;
     }
-    const source = pendingDisplaySources.get(mainWindow.webContents.id);
-    pendingDisplaySources.delete(mainWindow.webContents.id);
+    const source = selectedDisplaySources.get(mainWindow.webContents.id);
     callback(source ? { video: source } : null);
   }
 
