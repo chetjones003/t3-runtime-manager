@@ -23,11 +23,9 @@ public static class WindowFocus {
   [DllImport("user32.dll")] private static extern IntPtr SetFocus(IntPtr hwnd);
   [DllImport("user32.dll")] private static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
   [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
-  [DllImport("user32.dll")] private static extern bool ScreenToClient(IntPtr hwnd, ref POINT point);
+  [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
   [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
-  [DllImport("user32.dll", EntryPoint = "PostMessageW")] private static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
   [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
-  [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
   private const int GWL_STYLE = -16;
   private const int WS_CHILD = 0x40000000;
   private const int WS_POPUP = unchecked((int)0x80000000);
@@ -58,9 +56,20 @@ public static class WindowFocus {
     return found;
   }
 
-  public static string Embed(IntPtr hwnd, IntPtr host, int x, int y, int width, int height) {
+  public static string DescribeWindow(IntPtr hwnd) {
+    IntPtr previousDpiContext = SetThreadDpiAwarenessContext(new IntPtr(-4));
     RECT rect;
-    if (!GetWindowRect(hwnd, out rect)) return "none";
+    if (!GetWindowRect(hwnd, out rect)) { if (previousDpiContext != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpiContext); return "none"; }
+    string result = "{\"handle\":\"" + hwnd.ToInt64() + "\",\"width\":" +
+      (rect.Right - rect.Left) + ",\"height\":" + (rect.Bottom - rect.Top) + "}";
+    if (previousDpiContext != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpiContext);
+    return result;
+  }
+
+  public static string Embed(IntPtr hwnd, IntPtr host, int x, int y, int width, int height) {
+    IntPtr previousDpiContext = SetThreadDpiAwarenessContext(new IntPtr(-4));
+    RECT rect;
+    if (!GetWindowRect(hwnd, out rect)) { if (previousDpiContext != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpiContext); return "none"; }
     int style = GetWindowLong(hwnd, GWL_STYLE);
     // FindWindow only returns top-level, unowned windows, so restore them as top-level windows.
     IntPtr originalParent = IntPtr.Zero;
@@ -70,35 +79,49 @@ public static class WindowFocus {
     if (GetParent(hwnd) != host) {
       SetParentWindow(hwnd, originalParent);
       SetWindowLong(hwnd, GWL_STYLE, style);
+      if (previousDpiContext != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpiContext);
       return "none";
     }
-    if (!SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height,
+    RECT hostRect;
+    if (!GetClientRect(host, out hostRect) || !SetWindowPos(hwnd, IntPtr.Zero, 0, 0,
+      hostRect.Right - hostRect.Left, hostRect.Bottom - hostRect.Top,
       SWP_FRAMECHANGED | SWP_SHOWWINDOW)) {
       SetParentWindow(hwnd, originalParent);
       SetWindowLong(hwnd, GWL_STYLE, style);
       SetWindowPos(hwnd, IntPtr.Zero, rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top,
         SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+      if (previousDpiContext != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpiContext);
       return "none";
     }
-    SetForegroundWindow(hwnd);
+    ShowWindow(hwnd, 5);
     SetFocus(hwnd);
+    if (previousDpiContext != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpiContext);
     return "{\"handle\":\"" + hwnd.ToInt64() + "\",\"parent\":\"" + originalParent.ToInt64() +
       "\",\"style\":" + style + ",\"x\":" + rect.Left + ",\"y\":" + rect.Top +
       ",\"width\":" + (rect.Right - rect.Left) + ",\"height\":" + (rect.Bottom - rect.Top) + "}";
   }
 
-  public static bool UpdateEmbed(IntPtr hwnd, int x, int y, int width, int height) {
-    return SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height,
-      SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+  public static bool UpdateEmbed(IntPtr hwnd, IntPtr host) {
+    IntPtr previousDpiContext = SetThreadDpiAwarenessContext(new IntPtr(-4));
+    RECT rect;
+    bool updated = GetClientRect(host, out rect) && SetWindowPos(hwnd, IntPtr.Zero, 0, 0,
+      rect.Right - rect.Left, rect.Bottom - rect.Top, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    if (previousDpiContext != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpiContext);
+    return updated;
   }
 
+  public static bool HideEmbed(IntPtr hwnd) { ShowWindow(hwnd, 0); return true; }
+  public static bool ShowEmbed(IntPtr hwnd) { ShowWindow(hwnd, 5); return true; }
+
   public static bool RestoreEmbed(IntPtr hwnd, IntPtr parent, int style, int x, int y, int width, int height) {
+    IntPtr previousDpiContext = SetThreadDpiAwarenessContext(new IntPtr(-4));
     SetParentWindow(hwnd, parent);
     SetWindowLong(hwnd, GWL_STYLE, style);
     bool positioned = SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height,
       SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
     if ((style & WS_MAXIMIZE) != 0) ShowWindow(hwnd, 3);
     else if ((style & WS_MINIMIZE) != 0) ShowWindow(hwnd, 6);
+    if (previousDpiContext != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpiContext);
     return positioned;
   }
 
@@ -110,70 +133,21 @@ public static class WindowFocus {
     return SetForegroundWindow(hwnd);
   }
 
-  // Coordinates are normalized to the full captured window image, then converted to client space.
-  public static bool PostMouse(IntPtr hwnd, string type, double x, double y, string button, int buttons, int delta) {
-    // The bridge runs in a PowerShell process which may be DPI-unaware while the target app is
-    // per-monitor aware. SetThreadDpiAwarenessContext keeps GetWindowRect, ScreenToClient, and the
-    // coordinates consumed by the target window in the same physical-pixel coordinate space.
-    IntPtr previousDpiContext = SetThreadDpiAwarenessContext(new IntPtr(-4));
-    try {
-      RECT rect;
-      if (!GetWindowRect(hwnd, out rect)) return false;
-      POINT point = new POINT {
-        X = rect.Left + (int)Math.Round(x * (rect.Right - rect.Left)),
-        Y = rect.Top + (int)Math.Round(y * (rect.Bottom - rect.Top))
-      };
-      POINT screenPoint = point;
-      if (!ScreenToClient(hwnd, ref point)) return false;
-      uint clientPacked = ((uint)(ushort)point.Y << 16) | (ushort)point.X;
-      IntPtr clientPosition = (IntPtr)(long)clientPacked;
-      if (type == "wheel") {
-        uint wheelPacked = ((uint)(ushort)screenPoint.Y << 16) | (ushort)screenPoint.X;
-        IntPtr wheelPosition = (IntPtr)(long)wheelPacked;
-        return PostMessage(hwnd, 0x020A, (IntPtr)(delta << 16), wheelPosition);
-      }
-      if (type == "move") return PostMessage(hwnd, 0x0200, (IntPtr)buttons, clientPosition);
-      uint message = type == "down" ? (button == "right" ? 0x0204u : 0x0201u) :
-        type == "up" ? (button == "right" ? 0x0205u : 0x0202u) : 0;
-      if (message == 0) return false;
-      IntPtr flags = type == "down" ? (IntPtr)(button == "right" ? 0x0002 : 0x0001) : IntPtr.Zero;
-      return PostMessage(hwnd, message, flags, clientPosition);
-    } finally {
-      if (previousDpiContext != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpiContext);
-    }
-  }
-
-  public static bool PostKey(IntPtr hwnd, int keyCode, int[] charCodes, int modifiers) {
-    if (keyCode < 0 || keyCode > 255 || modifiers < 0 || modifiers > 7) return false;
-    int[] modifierKeys = new int[] { 0x10, 0x11, 0x12 };
-    for (int i = 0; i < modifierKeys.Length; i++) {
-      if ((modifiers & (1 << i)) != 0) PostMessage(hwnd, 0x0100, (IntPtr)modifierKeys[i], (IntPtr)1);
-    }
-    bool sent = PostMessage(hwnd, 0x0100, (IntPtr)keyCode, (IntPtr)1);
-    if (charCodes != null) {
-      foreach (int character in charCodes) {
-        if (character < 0 || character > 65535) return false;
-        sent = PostMessage(hwnd, 0x0102, (IntPtr)character, (IntPtr)1) && sent;
-      }
-    }
-    sent = PostMessage(hwnd, 0x0101, (IntPtr)keyCode, new IntPtr(unchecked((int)0xC0000001u))) && sent;
-    for (int i = modifierKeys.Length - 1; i >= 0; i--) {
-      if ((modifiers & (1 << i)) != 0) PostMessage(hwnd, 0x0101, (IntPtr)modifierKeys[i], new IntPtr(unchecked((int)0xC0000001u)));
-    }
-    return sent;
-  }
-
 }
 '@
 
-# $Mode, $Targets ('pid:name,pid:name'), and input parameters are prepended by the caller, which
+# $Mode, $Targets ('pid:name,pid:name'), and window parameters are prepended by the caller, which
 # validates both before they get here.
 $result = 'none'
 if ($Mode -eq 'update-embed') {
-  if ([WindowFocus]::UpdateEmbed([IntPtr]([long]$EmbeddedHandle), $EmbedX, $EmbedY, $EmbedWidth, $EmbedHeight)) { $result = 'updated' }
+  if ([WindowFocus]::UpdateEmbed([IntPtr]([long]$EmbeddedHandle), [IntPtr]([long]$HostHandle))) { $result = 'updated' }
 } elseif ($Mode -eq 'restore-embed') {
   $saved = $OriginalState | ConvertFrom-Json
   if ([WindowFocus]::RestoreEmbed([IntPtr]([long]$EmbeddedHandle), [IntPtr]([long]$saved.parent), [int]$saved.style, [int]$saved.x, [int]$saved.y, [int]$saved.width, [int]$saved.height)) { $result = 'restored' }
+} elseif ($Mode -eq 'hide-embed') {
+  if ([WindowFocus]::HideEmbed([IntPtr]([long]$EmbeddedHandle))) { $result = 'hidden' }
+} elseif ($Mode -eq 'show-embed') {
+  if ([WindowFocus]::ShowEmbed([IntPtr]([long]$EmbeddedHandle))) { $result = 'shown' }
 } elseif ($Mode -eq 'embed') {
   foreach ($entry in $Targets.Split(',')) {
     $pidText, $name = $entry.Split(':', 2)
@@ -193,22 +167,8 @@ foreach ($entry in $Targets.Split(',')) {
   $window = [WindowFocus]::FindWindow([uint32]$process.Id)
   if ($window -eq [IntPtr]::Zero) { continue }
   if ($Mode -eq 'find') {
-    $result = [string][int64]$window
+    $result = [WindowFocus]::DescribeWindow($window)
     break
-  }
-  if ($Mode -eq 'mouse') {
-    if ([WindowFocus]::PostMouse($window, $MouseType, $MouseX, $MouseY, $MouseButton, $MouseFlags, $MouseDelta)) {
-      $result = 'sent'
-      break
-    }
-    continue
-  }
-  if ($Mode -eq 'key') {
-    if ([WindowFocus]::PostKey($window, $KeyCode, $CharCodes, $Modifiers)) {
-      $result = 'sent'
-      break
-    }
-    continue
   }
   if ([WindowFocus]::Focus($window)) {
     $result = 'focused'

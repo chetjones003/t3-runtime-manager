@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { fitPreviewBounds } from './preview-bounds.cjs';
 
 const THREAD_POLL_MS = 5000;
 
@@ -143,22 +144,16 @@ function RuntimeGroup({ runtime, selected, selectable, onSelect }) {
 }
 
 const previewMessages = {
-  self: "This is the window you're looking at, so there is nothing to mirror.",
   none: 'This runtime has no window or page to preview.',
   unsupported: 'Window previews are not supported on this operating system yet.',
-  ended: 'The window closed or can no longer be captured.',
   error: 'The preview could not start. Refresh runtimes and try again.',
 };
 
-function RuntimePreview({ runtime, scannedAt }) {
+function RuntimePreview({ runtime }) {
   const [preview, setPreview] = useState({ kind: 'loading' });
-  const [stream, setStream] = useState(null);
   const [fullscreen, setFullscreen] = useState(false);
-  const videoRef = useRef(null);
   const previewRef = useRef(null);
-  const streamRef = useRef(null);
-  const lastPointerSend = useRef(0);
-  const fitPreviewRef = useRef(() => {});
+  const previewBodyRef = useRef(null);
 
   useEffect(() => {
     if (!fullscreen) return undefined;
@@ -169,86 +164,15 @@ function RuntimePreview({ runtime, scannedAt }) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [fullscreen]);
 
-  function sendPointer(event, type, delta = 0) {
-    if (preview.kind !== 'window' || !videoRef.current) return;
-    const now = performance.now();
-    if (type === 'move' && now - lastPointerSend.current < 100) return;
-    lastPointerSend.current = now;
-
-    const video = videoRef.current;
-    const bounds = video.getBoundingClientRect();
-    const imageRatio = video.videoWidth / video.videoHeight;
-    if (!imageRatio) return;
-    const boxRatio = bounds.width / bounds.height;
-    const drawnWidth = imageRatio > boxRatio ? bounds.width : bounds.height * imageRatio;
-    const drawnHeight = imageRatio > boxRatio ? bounds.width / imageRatio : bounds.height;
-    const left = bounds.left + (bounds.width - drawnWidth) / 2;
-    const top = bounds.top + (bounds.height - drawnHeight) / 2;
-    const x = (event.clientX - left) / drawnWidth;
-    const y = (event.clientY - top) / drawnHeight;
-    if (x < 0 || x > 1 || y < 0 || y > 1) return;
-    window.threadAppManager.sendPreviewInput(runtime.id, {
-      type,
-      x,
-      y,
-      button: event.button === 2 ? 'right' : 'left',
-      buttons: event.buttons ?? 0,
-      delta,
-    });
-  }
-
-  function sendKey(event) {
-    if (preview.kind !== 'window' || (fullscreen && event.key === 'Escape')) return;
-    const keyCode = event.keyCode || event.which;
-    if (!keyCode) return;
-    event.preventDefault();
-    window.threadAppManager.sendPreviewInput(runtime.id, {
-      type: 'key',
-      keyCode,
-      charCodes:
-        event.key.length === 1 && !event.ctrlKey && !event.altKey
-          ? Array.from({ length: event.key.length }, (_, index) => event.key.charCodeAt(index))
-          : [],
-      modifiers: (event.shiftKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.altKey ? 4 : 0),
-    });
-  }
-
   useEffect(() => {
     let cancelled = false;
     setPreview({ kind: 'loading' });
-    setStream(null);
 
     (async () => {
       try {
         const result = await window.threadAppManager.getRuntimePreview(runtime.id);
         if (cancelled) return;
-        if (result.kind !== 'window') {
-          setPreview(result);
-          return;
-        }
-        if (typeof result.sourceId !== 'string') {
-          throw new Error('Electron did not provide a capture source for this window.');
-        }
-        const active = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: {
-            mandatory: {
-              chromeMediaSource: 'desktop',
-              chromeMediaSourceId: result.sourceId,
-              maxFrameRate: 15,
-            },
-          },
-        });
-        if (cancelled) {
-          active.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        active.getVideoTracks()[0]?.addEventListener('ended', () => {
-          if (!cancelled) setPreview({ kind: 'ended' });
-        });
-        streamRef.current = active;
-        setStream(active);
-        setPreview({ kind: 'window' });
+        setPreview(result);
       } catch (error) {
         if (!cancelled) {
           setPreview({
@@ -261,76 +185,73 @@ function RuntimePreview({ runtime, scannedAt }) {
 
     return () => {
       cancelled = true;
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
+      window.threadAppManager.hideRuntimePreview();
     };
-  }, [runtime.id, runtime.name, scannedAt]);
+  }, [runtime.id]);
 
   useEffect(() => {
-    if (videoRef.current) videoRef.current.srcObject = stream;
-  }, [stream, preview.kind]);
+    const body = previewBodyRef.current;
+    if (preview.kind !== 'window' || !body || !preview.width || !preview.height) return undefined;
 
-  useEffect(() => {
-    const section = previewRef.current;
-    const video = videoRef.current;
-    if (preview.kind !== 'window' || !section || !video) return undefined;
-    const panel = section.parentElement;
-    if (!panel) return undefined;
-
-    const fit = () => {
-      if (fullscreen) {
-        section.style.width = '';
-        section.style.height = '';
-        section.classList.remove('preview-fitted');
-        return;
+    let embedded = false;
+    let closed = false;
+    let running = false;
+    let latestBounds = null;
+    let lastSentBounds = null;
+    let resizeTimer = null;
+    const flush = async () => {
+      resizeTimer = null;
+      if (closed || running || !latestBounds) return;
+      const bounds = latestBounds;
+      latestBounds = null;
+      if (embedded && JSON.stringify(bounds) === JSON.stringify(lastSentBounds)) return;
+      lastSentBounds = bounds;
+      running = true;
+      try {
+        const ok = embedded
+          ? await window.threadAppManager.updateEmbeddedRuntimeWindow(runtime.id, bounds)
+          : await window.threadAppManager.embedRuntimeWindow(runtime.id, bounds);
+        embedded = embedded || ok;
+        if (!ok && !closed) {
+          latestBounds = null;
+          window.threadAppManager.hideRuntimePreview();
+          setPreview({ kind: 'error', detail: 'Native window embedding failed.' });
+        }
+      } catch (error) {
+        if (!closed) {
+          latestBounds = null;
+          window.threadAppManager.hideRuntimePreview();
+          setPreview({
+            kind: 'error',
+            detail: error instanceof Error ? error.message : String(error),
+          });
+        }
+      } finally {
+        running = false;
+        if (latestBounds && !resizeTimer) resizeTimer = setTimeout(flush, 50);
       }
-      const sourceWidth = video.videoWidth;
-      const sourceHeight = video.videoHeight;
-      if (!sourceWidth || !sourceHeight) return;
-
-      const panelStyle = getComputedStyle(panel);
-      const paddingX = parseFloat(panelStyle.paddingLeft) + parseFloat(panelStyle.paddingRight);
-      const paddingY = parseFloat(panelStyle.paddingTop) + parseFloat(panelStyle.paddingBottom);
-      const gap = parseFloat(panelStyle.rowGap) || 0;
-      const siblingsHeight = Array.from(panel.children)
-        .filter((child) => child !== section)
-        .reduce((total, child) => total + child.getBoundingClientRect().height, 0);
-      const siblingGaps = gap * Math.max(0, panel.children.length - 1);
-      const availableWidth = Math.max(1, panel.clientWidth - paddingX);
-      const availableHeight = Math.max(
-        120,
-        panel.clientHeight -
-          paddingY -
-          siblingsHeight -
-          siblingGaps -
-          section.querySelector('.preview-bar').getBoundingClientRect().height,
+    };
+    const place = () => {
+      const rect = body.getBoundingClientRect();
+      const bounds = fitPreviewBounds(
+        { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+        { width: preview.width, height: preview.height },
       );
-      const scale = Math.min(availableWidth / sourceWidth, availableHeight / sourceHeight);
-      const width = Math.max(1, Math.floor(sourceWidth * scale));
-      const height = Math.max(1, Math.floor(sourceHeight * scale));
-      const barHeight = section.querySelector('.preview-bar').getBoundingClientRect().height;
-
-      section.style.width = `${width}px`;
-      section.style.height = `${height + barHeight}px`;
-      section.classList.add('preview-fitted');
+      if (!bounds) return;
+      latestBounds = bounds;
+      if (!running && !resizeTimer) resizeTimer = setTimeout(flush, 50);
     };
-
-    fitPreviewRef.current = fit;
-    const observer = new ResizeObserver(fit);
-    observer.observe(panel);
-    observer.observe(section.querySelector('.preview-bar'));
-    Array.from(panel.children)
-      .filter((child) => child !== section)
-      .forEach((child) => observer.observe(child));
-    fit();
+    const observer = new ResizeObserver(place);
+    observer.observe(body);
+    window.addEventListener('resize', place);
+    place();
     return () => {
+      closed = true;
+      if (resizeTimer) clearTimeout(resizeTimer);
       observer.disconnect();
-      section.style.width = '';
-      section.style.height = '';
-      section.classList.remove('preview-fitted');
-      fitPreviewRef.current = () => {};
+      window.removeEventListener('resize', place);
     };
-  }, [preview.kind, fullscreen, runtime.id]);
+  }, [preview.kind, preview.width, preview.height, fullscreen, runtime.id]);
 
   return (
     <section
@@ -355,32 +276,9 @@ function RuntimePreview({ runtime, scannedAt }) {
           {fullscreen ? 'Exit fullscreen' : '⛶ Fullscreen'}
         </button>
       </div>
-      <div className="preview-body">
+      <div className="preview-body" ref={previewBodyRef}>
         {preview.kind === 'loading' && <span className="spinner large-spinner" />}
-        {preview.kind === 'window' && (
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
-            tabIndex={0}
-            aria-label={runtime.name + ' window'}
-            onLoadedMetadata={() => fitPreviewRef.current()}
-            onKeyDown={sendKey}
-            onMouseMove={(event) => sendPointer(event, 'move')}
-            onMouseDown={(event) => {
-              event.preventDefault();
-              videoRef.current?.focus({ preventScroll: true });
-              sendPointer(event, 'down');
-            }}
-            onMouseUp={(event) => sendPointer(event, 'up')}
-            onWheel={(event) => {
-              event.preventDefault();
-              sendPointer(event, 'wheel', Math.round(Math.max(-120, Math.min(120, -event.deltaY))));
-            }}
-            onContextMenu={(event) => event.preventDefault()}
-          />
-        )}
+        {preview.kind === 'window' && <div className="native-preview-placeholder" />}
         {preview.kind === 'url' && (
           <iframe
             src={preview.url}
@@ -782,9 +680,7 @@ export default function App() {
                       key={runtime.id}
                     />
                   ))}
-                {!scanning && previewed && (
-                  <RuntimePreview runtime={previewed} scannedAt={scan.scannedAt} />
-                )}
+                {!scanning && previewed && <RuntimePreview runtime={previewed} />}
               </div>
               {scan?.limitations.length > 0 && (
                 <div className="scan-limitations">

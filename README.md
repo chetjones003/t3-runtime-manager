@@ -10,7 +10,7 @@ Install dependencies with `npm install`, then start the desktop app with `npm ru
 
 Connect with a one-time code from **T3 Settings → Connections**. The cockpit then lists threads with worktrees across projects, refreshes their state every five seconds, and opens a selected thread in T3 Code. Thread access is read-only.
 
-**Refresh runtimes** scans processes and TCP listeners for the local worktrees. On Windows, every discovered desktop window is attached to its associated runtime and parked inside the manager; the selected runtime's actual window is shown in the preview and accepts direct mouse and keyboard input. The preview container resizes to the available app area without resizing the external application. Fullscreen expands that same embedded window inside the manager frame; **Exit fullscreen** returns to the workspace. When a runtime has no window, the preview shows its loopback page when available. Native window embedding is Windows-only.
+**Refresh runtimes** scans processes and TCP listeners for the local worktrees. On Windows, the selected runtime's window is reparented into a separate transparent native host positioned over the preview. The manager's Chromium surface stays intact, and pointer and keyboard input go directly to the embedded HWND instead of being mapped from a captured image. The app window keeps its aspect ratio as the preview resizes and enters fullscreen. When a runtime has no window, the preview shows its loopback page when available. Native window embedding is Windows-only.
 
 Build, start, stop, and remembered workspace settings are not connected yet.
 
