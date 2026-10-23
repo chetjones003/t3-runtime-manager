@@ -280,3 +280,29 @@
   border-radius: 99px;
   padding: 4px 7px;
 }
+
+.candidate-section {
+  display: grid;
+  gap: 10px;
+  padding: 12px 16px;
+}
+
+.workspace-unmatched {
+  border-top: 1px solid #232a36;
+}
+
+.candidate-group.ambiguous {
+  border-style: dashed;
+}
+
+.low-confidence,
+.ambiguous-confidence,
+.partial-detail,
+.scan-state-partial {
+  font-size: 12px;
+  color: #e0b252;
+}
+
+.ambiguous-confidence {
+  color: #e0866a;
+}
