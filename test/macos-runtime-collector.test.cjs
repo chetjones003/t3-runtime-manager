@@ -1,3 +1,5 @@
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fixture = require('./fixtures/macos-runtime-scan.json');
@@ -154,4 +156,23 @@ test('macOS matching ignores case and resolves the /private symlink aliases', ()
     result.runtimes.map(({ worktreeId }) => worktreeId),
     ['alpha'],
   );
+});
+
+test('real macOS ps output captured on a GitHub runner parses, including non-path comm values and racing pids', () => {
+  const dir = path.join(__dirname, 'fixtures', 'macos-captured');
+  const processes = parseMacosProcesses(
+    fs.readFileSync(path.join(dir, 'ps-command.txt'), 'utf8'),
+    fs.readFileSync(path.join(dir, 'ps-comm.txt'), 'utf8'),
+  );
+
+  assert.deepEqual(
+    processes.map(({ pid, name, executablePath }) => ({ pid, name, executablePath })),
+    [
+      { pid: 1, name: 'launchd', executablePath: '/sbin/launchd' },
+      { pid: 86, name: 'logd', executablePath: '/usr/libexec/logd' },
+      { pid: 252, name: 'Core Audio Driver (NullAudio.driver)', executablePath: null },
+      { pid: 985, name: '', executablePath: null },
+    ],
+  );
+  assert.equal(processes[3].commandLine, 'ps -axww -o pid=,ppid=,command=');
 });

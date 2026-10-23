@@ -1,0 +1,4 @@
+    1     0 /sbin/launchd
+   86     1 /usr/libexec/logd
+  252     1 Core Audio Driver (NullAudio.driver)
+  985   983 ps -axww -o pid=,ppid=,command=
