@@ -10,6 +10,7 @@
     "test": "node --test",
     "format:check": "prettier --check .",
     "smoke:windows": "node scripts/smoke-windows-runtime-discovery.cjs",
+    "smoke:macos": "node scripts/smoke-macos-runtime-discovery.cjs",
     "desktop": "node scripts/run-electron.cjs"
   },
   "dependencies": {

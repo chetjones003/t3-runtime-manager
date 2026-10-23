@@ -40,7 +40,7 @@ function listenersForProcess(pid, listeners) {
     .map((listener) => ({ address: listener.address, port: Number(listener.port) }));
 }
 
-function classifyRuntime(process, ownedListeners) {
+function classifyRuntime(process, ownedListeners, platform) {
   const metadata =
     `${process.name || ''} ${process.executablePath || ''} ${process.commandLine || ''}`.toLowerCase();
   const isDevServer =
@@ -48,7 +48,9 @@ function classifyRuntime(process, ownedListeners) {
       metadata,
     );
   if (isDevServer) return { kind: 'browser-dev-server', label: 'Browser dev server' };
-  if (/\.exe$/i.test(process.executablePath || ''))
+  if (platform === 'darwin' && /\.app\/Contents\/MacOS\//.test(process.executablePath || ''))
+    return { kind: 'desktop-app', label: 'macOS app' };
+  if (platform !== 'darwin' && /\.exe$/i.test(process.executablePath || ''))
     return { kind: 'desktop-app', label: 'Windows app' };
   return { kind: 'process', label: ownedListeners.length ? 'Listening process' : 'Process' };
 }
@@ -99,9 +101,9 @@ function collectHelpers(rootPid, childrenByParent, isExcluded, listeners, matchF
   return helpers;
 }
 
-function candidateEntry(process, evidence, reason, confidence, listeners, extra = {}) {
+function candidateEntry(process, evidence, reason, confidence, listeners, platform, extra = {}) {
   const ownedListeners = listenersForProcess(Number(process.pid), listeners);
-  const classification = classifyRuntime(process, ownedListeners);
+  const classification = classifyRuntime(process, ownedListeners, platform);
   return {
     process: safeProcess(process, evidence),
     reason,
@@ -155,6 +157,7 @@ function normalizeRuntimeScan({
           'ambiguous-worktree',
           'ambiguous',
           listeners,
+          platform,
           { candidateWorktreeIds: worktreeMatches.map(({ id }) => id) },
         ),
       );
@@ -167,7 +170,7 @@ function normalizeRuntimeScan({
     const hasMatchedParent = matches.has(Number(match.process.parentPid));
     if (hasMatchedParent && ownedListeners.length === 0) continue;
 
-    const classification = classifyRuntime(match.process, ownedListeners);
+    const classification = classifyRuntime(match.process, ownedListeners, platform);
     const helperProcesses = collectHelpers(
       pid,
       childrenByParent,
@@ -198,7 +201,7 @@ function normalizeRuntimeScan({
     const pid = Number(process.pid);
     if (matches.has(pid) || ambiguousPids.has(pid)) continue;
     const ownedListeners = listenersForProcess(pid, listeners);
-    const classification = classifyRuntime(process, ownedListeners);
+    const classification = classifyRuntime(process, ownedListeners, platform);
     if (!ownedListeners.length && classification.kind !== 'browser-dev-server') continue;
     candidates.set(
       pid,
