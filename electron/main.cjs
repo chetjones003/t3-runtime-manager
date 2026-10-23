@@ -18,6 +18,7 @@ const { createT3Service } = require('./t3-service.cjs');
 const { createTakeControlService } = require('./take-control-service.cjs');
 
 let mainWindow;
+const pendingDisplaySources = new Map();
 
 function validateWorktrees(worktrees) {
   if (!Array.isArray(worktrees)) throw new Error('Invalid worktree list: expected an array.');
@@ -132,6 +133,7 @@ ipcMain.handle('runtime:preview', async (event, runtimeId) => {
     if (!source && attempt < 4) await new Promise((resolve) => setTimeout(resolve, 200));
   }
   if (!source) return { kind: 'none' };
+  pendingDisplaySources.set(event.sender.id, source);
   return { kind: 'window', sourceId: source.id };
 });
 
@@ -280,6 +282,27 @@ app.whenReady().then(() => {
     callback(
       mayCaptureDisplay(webContents, permission, details?.requestingUrl, details?.isMainFrame),
     ),
+  );
+  session.defaultSession.setDisplayMediaRequestHandler(
+    (request, callback) => {
+      if (
+        !mainWindow ||
+        request.frame !== mainWindow.webContents.mainFrame ||
+        !isTrustedCockpitUrl(request.securityOrigin) ||
+        !request.videoRequested
+      ) {
+        callback(null);
+        return;
+      }
+      const source = mainWindow && pendingDisplaySources.get(mainWindow.webContents.id);
+      if (mainWindow) pendingDisplaySources.delete(mainWindow.webContents.id);
+      if (!source) {
+        callback(null);
+        return;
+      }
+      callback({ video: source });
+    },
+    { useSystemPicker: false },
   );
   createWindow();
 

@@ -151,7 +151,20 @@ const previewMessages = {
   error: 'The preview could not start. Refresh runtimes and try again.',
 };
 
-function RuntimePreview({ runtime, scannedAt }) {
+const previewStreamCache = new Map();
+const PREVIEW_STREAM_CACHE_LIMIT = 4;
+
+function rememberPreviewStream(runtimeId, stream) {
+  previewStreamCache.delete(runtimeId);
+  previewStreamCache.set(runtimeId, stream);
+  while (previewStreamCache.size > PREVIEW_STREAM_CACHE_LIMIT) {
+    const [oldestRuntimeId, oldestStream] = previewStreamCache.entries().next().value;
+    previewStreamCache.delete(oldestRuntimeId);
+    oldestStream.getTracks().forEach((track) => track.stop());
+  }
+}
+
+function RuntimePreview({ runtime }) {
   const [preview, setPreview] = useState({ kind: 'loading' });
   const [stream, setStream] = useState(null);
   const videoRef = useRef(null);
@@ -206,6 +219,22 @@ function RuntimePreview({ runtime, scannedAt }) {
 
   useEffect(() => {
     let cancelled = false;
+    const cachedStream = previewStreamCache.get(runtime.id);
+    if (cachedStream?.getVideoTracks().some((track) => track.readyState === 'live')) {
+      previewStreamCache.delete(runtime.id);
+      previewStreamCache.set(runtime.id, cachedStream);
+      streamRef.current = cachedStream;
+      setStream(cachedStream);
+      setPreview({ kind: 'window' });
+      return () => {
+        cancelled = true;
+        streamRef.current = null;
+      };
+    }
+    if (cachedStream) {
+      previewStreamCache.delete(runtime.id);
+      cachedStream.getTracks().forEach((track) => track.stop());
+    }
     setPreview({ kind: 'loading' });
     setStream(null);
 
@@ -220,24 +249,30 @@ function RuntimePreview({ runtime, scannedAt }) {
         if (typeof result.sourceId !== 'string') {
           throw new Error('Electron did not provide a capture source for this window.');
         }
-        const active = await navigator.mediaDevices.getUserMedia({
+        const active = await navigator.mediaDevices.getDisplayMedia({
           audio: false,
           video: {
             cursor: 'never',
-            mandatory: {
-              chromeMediaSource: 'desktop',
-              chromeMediaSourceId: result.sourceId,
-              maxFrameRate: 15,
-            },
+            frameRate: { ideal: 15, max: 15 },
           },
         });
+        const videoTrack = active.getVideoTracks()[0];
+        if (videoTrack) {
+          try {
+            await videoTrack.applyConstraints({ cursor: { exact: 'never' } });
+          } catch {
+            // Some desktop capture backends only honor the cursor preference at stream creation.
+          }
+        }
         if (cancelled) {
           active.getTracks().forEach((track) => track.stop());
           return;
         }
-        active.getVideoTracks()[0]?.addEventListener('ended', () => {
+        videoTrack?.addEventListener('ended', () => {
+          if (previewStreamCache.get(runtime.id) === active) previewStreamCache.delete(runtime.id);
           if (!cancelled) setPreview({ kind: 'ended' });
         });
+        rememberPreviewStream(runtime.id, active);
         streamRef.current = active;
         setStream(active);
         setPreview({ kind: 'window' });
@@ -253,10 +288,9 @@ function RuntimePreview({ runtime, scannedAt }) {
 
     return () => {
       cancelled = true;
-      streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
-  }, [runtime.id, runtime.name, scannedAt]);
+  }, [runtime.id]);
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.srcObject = stream;
@@ -825,7 +859,7 @@ export default function App() {
                     />
                   ))}
                 {!scanning && previewed && (
-                  <RuntimePreview runtime={previewed} scannedAt={scan.scannedAt} />
+                  <RuntimePreview runtime={previewed} />
                 )}
               </div>
               {scan?.limitations.length > 0 && (
