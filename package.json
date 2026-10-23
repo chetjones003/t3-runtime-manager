@@ -5,7 +5,7 @@
   "description": "React and Electron prototype for managing applications associated with agent worktrees.",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:127.0.0.1:5178 && node scripts/run-electron.cjs --dev\"",
+    "dev": "concurrently -k --names vite,electron --success command-electron \"vite --host 127.0.0.1\" \"wait-on tcp:127.0.0.1:5178 && node scripts/run-electron.cjs --dev\"",
     "build": "vite build",
     "test": "node --test",
     "format:check": "prettier --check .",

@@ -3,6 +3,15 @@ $processes = [System.Collections.Generic.List[object]]::new()
 $listeners = [System.Collections.Generic.List[object]]::new()
 $limitations = [System.Collections.Generic.List[string]]::new()
 
+$windowTitles = @{}
+try {
+  foreach ($item in Get-Process -ErrorAction Stop) {
+    if ($item.MainWindowTitle) { $windowTitles[[int]$item.Id] = [string]$item.MainWindowTitle }
+  }
+} catch {
+  $limitations.Add('Window titles are unavailable for this scan.')
+}
+
 try {
   foreach ($item in Get-CimInstance -ClassName Win32_Process -ErrorAction Stop) {
     $processes.Add([pscustomobject]@{
@@ -11,6 +20,7 @@ try {
       name = [string]$item.Name
       executablePath = [string]$item.ExecutablePath
       commandLine = [string]$item.CommandLine
+      windowTitle = [string]$windowTitles[[int]$item.ProcessId]
     })
   }
 } catch {

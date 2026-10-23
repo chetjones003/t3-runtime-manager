@@ -54,6 +54,16 @@ function classifyRuntime(process, ownedListeners, platform) {
       metadata,
     );
   if (isDevServer) return { kind: 'browser-dev-server', label: 'Browser dev server' };
+  const executableName = (process.executablePath || process.name || '')
+    .split(/[\\/]/)
+    .pop()
+    .toLowerCase();
+  if (
+    platform === 'win32' &&
+    /^(cl|link|lib|rc|mt|msbuild|cmake|ninja)\.exe$/.test(executableName)
+  ) {
+    return { kind: 'process', label: 'Process' };
+  }
   if (platform === 'darwin' && /\.app\/Contents\/MacOS\//.test(process.executablePath || ''))
     return { kind: 'desktop-app', label: 'macOS app' };
   if (platform === 'win32' && /\.exe$/i.test(process.executablePath || ''))
@@ -289,4 +299,4 @@ function normalizeRuntimeScan({
   };
 }
 
-module.exports = { normalizeRuntimeScan };
+module.exports = { classifyRuntime, normalizeRuntimeScan };
