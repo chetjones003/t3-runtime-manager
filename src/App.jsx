@@ -650,7 +650,7 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark">TM</span>
-          <span>Thread App Manager</span>
+          <span>T3 Runtime Manager</span>
         </div>
         <div className="topbar-spacer" />
         {badge && (

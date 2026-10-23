@@ -95,7 +95,7 @@ async function exchangePairingCode({ origin, code, fetchImpl = fetch }) {
       subject_token_type: 'urn:t3:params:oauth:token-type:environment-bootstrap',
       requested_token_type: 'urn:ietf:params:oauth:token-type:access_token',
       scope: READ_SCOPE,
-      client_label: 'Thread App Manager',
+      client_label: 'T3 Runtime Manager',
       client_device_type: 'desktop',
       client_os: process.platform === 'darwin' ? 'macos' : process.platform,
     }).toString(),
