@@ -7,7 +7,7 @@ const execOptions = { timeout: 20000, maxBuffer: 64 * 1024 * 1024, encoding: 'ut
 
 function parsePsLines(output, fieldCount) {
   const records = [];
-  for (const line of output.split('\n')) {
+  for (const line of output.split(/\r?\n/)) {
     const pattern = fieldCount === 3 ? /^\s*(\d+)\s+(\d+)\s+(.*)$/ : /^\s*(\d+)\s+(.*)$/;
     const match = pattern.exec(line);
     if (!match) continue;
