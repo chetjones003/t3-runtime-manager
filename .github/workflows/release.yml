@@ -82,15 +82,28 @@ jobs:
           - os: windows-latest
             artifact: windows
             args: --win
+            files: |
+              release/*.exe
+              release/*.zip
           - os: macos-latest
             artifact: macos-x64
             args: --mac --x64
+            files: |
+              release/*.dmg
+              release/*.zip
           - os: macos-latest
             artifact: macos-arm64
             args: --mac --arm64
+            files: |
+              release/*.dmg
+              release/*.zip
           - os: ubuntu-latest
             artifact: linux
             args: --linux
+            files: |
+              release/*.deb
+              release/*.AppImage
+              release/*.tar.gz
     steps:
       - uses: actions/checkout@v7
         with:
@@ -104,10 +117,17 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx electron-builder ${{ matrix.args }} --publish never
+      - name: Label macOS x64 assets
+        if: matrix.artifact == 'macos-x64'
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          mv "release/T3 Runtime Manager-${VERSION}.dmg" "release/T3 Runtime Manager-${VERSION}-x64.dmg"
+          mv "release/T3 Runtime Manager-${VERSION}-mac.zip" "release/T3 Runtime Manager-${VERSION}-x64-mac.zip"
       - uses: actions/upload-artifact@v7
         with:
           name: installers-${{ matrix.artifact }}
-          path: release/*
+          path: ${{ matrix.files }}
           if-no-files-found: error
 
   publish:
@@ -123,4 +143,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
-        run: gh release create "$TAG" release-assets/* --repo "${GITHUB_REPOSITORY}" --title "T3 Runtime Manager $TAG" --generate-notes
+        run: |
+          mapfile -d '' ASSETS < <(find release-assets -type f -print0)
+          if ((${#ASSETS[@]} == 0)); then
+            echo "No release assets were downloaded" >&2
+            exit 1
+          fi
+
+          if gh release view "$TAG" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${ASSETS[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
+          else
+            gh release create "$TAG" "${ASSETS[@]}" --repo "${GITHUB_REPOSITORY}" --title "T3 Runtime Manager $TAG" --generate-notes
+          fi
