@@ -1,0 +1,30 @@
+name: Capture macOS collector output
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/capture-macos-output.yml
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    name: Capture ps and lsof output
+    runs-on: macos-latest
+    steps:
+      - name: Capture raw tool output
+        run: |
+          mkdir captured
+          ps -axww -o pid=,ppid=,command= > captured/ps-command.txt
+          ps -axww -o pid=,comm= > captured/ps-comm.txt
+          # lsof exits 1 when it skips entries or lists nothing; the output is still useful.
+          lsof -nP -iTCP -sTCP:LISTEN -F pn > captured/lsof-listen.txt || true
+          sw_vers > captured/sw_vers.txt
+
+      - name: Upload captured output
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-collector-output
+          path: captured/
