@@ -1,0 +1,63 @@
+{
+  "worktrees": [
+    { "id": "alpha", "path": "C:\\dev\\alpha" },
+    { "id": "beta", "path": "C:\\dev\\beta" }
+  ],
+  "processes": [
+    {
+      "pid": 4100,
+      "parentPid": 1,
+      "name": "node.exe",
+      "executablePath": "C:\\Program Files\\nodejs\\node.exe",
+      "commandLine": "node C:\\dev\\alpha\\node_modules\\vite\\bin\\vite.js --port 4173"
+    },
+    {
+      "pid": 4101,
+      "parentPid": 4100,
+      "name": "esbuild.exe",
+      "executablePath": "C:\\dev\\alpha\\node_modules\\esbuild\\esbuild.exe",
+      "commandLine": "esbuild service"
+    },
+    {
+      "pid": 4102,
+      "parentPid": 4101,
+      "name": "esbuild-worker.exe",
+      "executablePath": null,
+      "commandLine": null
+    },
+    {
+      "pid": 4150,
+      "parentPid": 1,
+      "name": "PreviewWorker.exe",
+      "executablePath": "C:\\dev\\alpha\\tools\\PreviewWorker.exe",
+      "commandLine": "\"C:\\dev\\alpha\\tools\\PreviewWorker.exe\""
+    },
+    {
+      "pid": 5200,
+      "parentPid": 1,
+      "name": "Survey.exe",
+      "executablePath": "C:\\dev\\beta\\build\\Survey.exe",
+      "commandLine": "\"C:\\dev\\beta\\build\\Survey.exe\""
+    },
+    {
+      "pid": 6300,
+      "parentPid": 1,
+      "name": "node.exe",
+      "executablePath": "C:\\Program Files\\nodejs\\node.exe",
+      "commandLine": "node C:\\dev\\alpha-preview\\server.js"
+    },
+    {
+      "pid": 6400,
+      "parentPid": 1,
+      "name": "node.exe",
+      "executablePath": "C:\\Program Files\\nodejs\\node.exe",
+      "commandLine": "node C:\\tools\\vite\\bin\\vite.js"
+    }
+  ],
+  "listeners": [
+    { "pid": 4100, "address": "127.0.0.1", "port": 4173 },
+    { "pid": 4100, "address": "::", "port": 4173 },
+    { "pid": 6300, "address": "0.0.0.0", "port": 4174 }
+  ],
+  "limitations": []
+}
