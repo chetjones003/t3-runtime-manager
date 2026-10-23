@@ -1,0 +1,49 @@
+{
+  "worktrees": [
+    { "id": "alpha", "path": "/Users/dev/alpha" },
+    { "id": "beta", "path": "/Users/dev/beta" }
+  ],
+  "processes": [
+    {
+      "pid": 4100,
+      "parentPid": 1,
+      "name": "node",
+      "executablePath": "/usr/local/bin/node",
+      "commandLine": "node /Users/dev/alpha/node_modules/vite/bin/vite.js --port 4173"
+    },
+    {
+      "pid": 4101,
+      "parentPid": 4100,
+      "name": "esbuild",
+      "executablePath": "/Users/dev/alpha/node_modules/esbuild/bin/esbuild",
+      "commandLine": "/Users/dev/alpha/node_modules/esbuild/bin/esbuild --service"
+    },
+    {
+      "pid": 5200,
+      "parentPid": 1,
+      "name": "Survey",
+      "executablePath": "/Users/dev/beta/build/Survey.app/Contents/MacOS/Survey",
+      "commandLine": "/Users/dev/beta/build/Survey.app/Contents/MacOS/Survey"
+    },
+    {
+      "pid": 6300,
+      "parentPid": 1,
+      "name": "node",
+      "executablePath": "/usr/local/bin/node",
+      "commandLine": "node /Users/dev/alpha-preview/server.js"
+    },
+    {
+      "pid": 6400,
+      "parentPid": 1,
+      "name": "launchd-helper",
+      "executablePath": null,
+      "commandLine": null
+    }
+  ],
+  "listeners": [
+    { "pid": 4100, "address": "127.0.0.1", "port": 4173 },
+    { "pid": 6300, "address": "0.0.0.0", "port": 8080 },
+    { "pid": 7000, "address": "::1", "port": 9000 }
+  ],
+  "limitations": []
+}

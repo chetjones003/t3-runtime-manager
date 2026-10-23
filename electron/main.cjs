@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { collectWindowsRuntimeData } = require('./windows-runtime-collector.cjs');
+const { collectRuntimeData } = require('./runtime-collector.cjs');
 const { normalizeRuntimeScan } = require('../src/runtime-discovery.cjs');
 
 let mainWindow;
@@ -52,7 +52,7 @@ ipcMain.handle('runtime-discovery:scan', async (event, requestedWorktrees) => {
   }
 
   const worktrees = validateWorktrees(requestedWorktrees);
-  const collected = await collectWindowsRuntimeData();
+  const collected = await collectRuntimeData();
   const scan = normalizeRuntimeScan({ ...collected, worktrees, platform: process.platform });
   return {
     ...scan,

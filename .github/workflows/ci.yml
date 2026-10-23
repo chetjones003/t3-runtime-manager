@@ -40,3 +40,7 @@ jobs:
       - name: Smoke-check Windows runtime discovery
         if: runner.os == 'Windows'
         run: npm run smoke:windows
+
+      - name: Smoke-check macOS runtime discovery
+        if: runner.os == 'macOS'
+        run: npm run smoke:macos
