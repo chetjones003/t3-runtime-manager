@@ -8,18 +8,18 @@ Building, starting, stopping, and remembered workspace settings are not connecte
 
 ## Install from the terminal
 
-Each update merged to `main` increments the patch version and publishes installers to [GitHub Releases](https://github.com/chetjones003/thread-app-manager/releases). The install commands download the latest release and print progress in the terminal.
+Each update merged to `main` increments the patch version and publishes installers to [GitHub Releases](https://github.com/chetjones003/t3-runtime-manager/releases). The install commands download the latest release and print progress in the terminal.
 
 **Windows PowerShell**
 
 ```powershell
-irm https://raw.githubusercontent.com/chetjones003/thread-app-manager/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/chetjones003/t3-runtime-manager/main/scripts/install.ps1 | iex
 ```
 
 **Linux and macOS**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/chetjones003/thread-app-manager/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/chetjones003/t3-runtime-manager/main/scripts/install.sh | bash
 ```
 
 On Debian and Ubuntu x86_64, the script installs the `.deb` package with apt. On macOS, it copies the matching architecture's app bundle to `/Applications`. Other Linux distributions can download the x86_64 AppImage from the latest release, make it executable, and run it:
