@@ -40,7 +40,7 @@ if ($Preview) {
 
 try {
   Show-Step '*' 'Checking latest release...' Cyan
-  $release = Invoke-RestMethod 'https://api.github.com/repos/chetjones003/thread-app-manager/releases/latest'
+  $release = Invoke-RestMethod 'https://api.github.com/repos/chetjones003/t3-runtime-manager/releases/latest'
   $asset = $release.assets | Where-Object { $_.name -match 'Setup.*\.exe$' } | Select-Object -First 1
   if (-not $asset) { throw 'No Windows installer was found in the latest release.' }
 

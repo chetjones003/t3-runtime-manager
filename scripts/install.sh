@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO='chetjones003/thread-app-manager'
+REPO='chetjones003/t3-runtime-manager'
 PREVIEW=false
 if [[ "${1:-}" == '--preview' ]]; then PREVIEW=true; fi
 

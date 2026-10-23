@@ -13,17 +13,21 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "assets/**/*",
       "src/**/*.cjs",
       "package.json"
     ],
     "asar": true,
     "win": {
+      "icon": "assets/icon.ico",
       "target": [
         "nsis",
         "zip"
       ]
     },
     "nsis": {
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
       "oneClick": true,
       "perMachine": false
     },

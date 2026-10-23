@@ -230,6 +230,7 @@ function createWindow() {
     minWidth: Math.min(920, width),
     minHeight: Math.min(650, height),
     backgroundColor: '#0b0e13',
+    icon: path.join(__dirname, '../assets/icon.png'),
     title: 'T3 Runtime Manager',
     frame: process.platform !== 'win32',
     autoHideMenuBar: process.platform === 'win32',
@@ -269,6 +270,8 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === 'win32') app.setAppUserModelId('com.t3code.runtimemanager');
+
   const mayCaptureDisplay = (webContents, permission, requestingUrl, isMainFrame) =>
     permission === 'display-capture' &&
     isMainFrame === true &&
