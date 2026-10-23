@@ -18,17 +18,16 @@ async function collectWindowsRuntimeData() {
   let stdout;
   try {
     const script = await readFile(collectorScript, 'utf8');
-    ({ stdout } = await execFileAsync('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      script,
-    ], {
-      windowsHide: true,
-      timeout: 20000,
-      maxBuffer: 64 * 1024 * 1024,
-      encoding: 'utf8',
-    }));
+    ({ stdout } = await execFileAsync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      {
+        windowsHide: true,
+        timeout: 20000,
+        maxBuffer: 64 * 1024 * 1024,
+        encoding: 'utf8',
+      },
+    ));
   } catch {
     throw new Error('The Windows process and listener scan could not complete.');
   }

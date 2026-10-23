@@ -13,9 +13,15 @@ function validateWorktrees(worktrees) {
 
   const ids = new Set();
   return worktrees.map((worktree) => {
-    if (!worktree || typeof worktree.id !== 'string' || typeof worktree.path !== 'string'
-      || worktree.id.length > 200 || worktree.path.length > 4096 || !worktree.path.trim()
-      || ids.has(worktree.id)) {
+    if (
+      !worktree ||
+      typeof worktree.id !== 'string' ||
+      typeof worktree.path !== 'string' ||
+      worktree.id.length > 200 ||
+      worktree.path.length > 4096 ||
+      !worktree.path.trim() ||
+      ids.has(worktree.id)
+    ) {
       throw new Error('Invalid worktree list.');
     }
     ids.add(worktree.id);
@@ -28,15 +34,20 @@ ipcMain.handle('runtime-discovery:scan', async (event, requestedWorktrees) => {
   const trustedUrl = app.isPackaged
     ? senderUrl === pathToFileURL(path.join(__dirname, '../dist/index.html')).href
     : (() => {
-      try {
-        const url = new URL(senderUrl);
-        return url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.port === '5178';
-      } catch {
-        return false;
-      }
-    })();
+        try {
+          const url = new URL(senderUrl);
+          return url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.port === '5178';
+        } catch {
+          return false;
+        }
+      })();
 
-  if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== event.sender.mainFrame || !trustedUrl) {
+  if (
+    !mainWindow ||
+    event.sender !== mainWindow.webContents ||
+    event.senderFrame !== event.sender.mainFrame ||
+    !trustedUrl
+  ) {
     throw new Error('Runtime discovery is only available to the cockpit window.');
   }
 
@@ -75,7 +86,9 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
-  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 app.whenReady().then(() => {

@@ -1,7 +1,11 @@
 const path = require('node:path');
 
 function normalizePath(value, platform) {
-  if (platform === 'win32') return value.replaceAll('/', '\\').replace(/[\\]+$/, '').toLowerCase();
+  if (platform === 'win32')
+    return value
+      .replaceAll('/', '\\')
+      .replace(/[\\]+$/, '')
+      .toLowerCase();
   return value.replace(/[\\/]+$/, '');
 }
 
@@ -24,8 +28,10 @@ function pathIsInsideWorktree(candidate, worktreePath, platform) {
 }
 
 function processReferencesWorktree(process, worktreePath, platform) {
-  return pathIsInsideWorktree(process.executablePath, worktreePath, platform)
-    || pathIsInsideWorktree(process.commandLine, worktreePath, platform);
+  return (
+    pathIsInsideWorktree(process.executablePath, worktreePath, platform) ||
+    pathIsInsideWorktree(process.commandLine, worktreePath, platform)
+  );
 }
 
 function listenersForProcess(pid, listeners) {
@@ -35,10 +41,15 @@ function listenersForProcess(pid, listeners) {
 }
 
 function classifyRuntime(process, listeners) {
-  const metadata = `${process.name || ''} ${process.executablePath || ''} ${process.commandLine || ''}`.toLowerCase();
-  const isDevServer = /\b(vite|next(?:\.js)?|webpack(?:-dev-server)?|react-scripts|parcel|astro|nuxt|svelte-kit)\b/.test(metadata);
+  const metadata =
+    `${process.name || ''} ${process.executablePath || ''} ${process.commandLine || ''}`.toLowerCase();
+  const isDevServer =
+    /\b(vite|next(?:\.js)?|webpack(?:-dev-server)?|react-scripts|parcel|astro|nuxt|svelte-kit)\b/.test(
+      metadata,
+    );
   if (isDevServer) return { kind: 'browser-dev-server', label: 'Browser dev server' };
-  if (/\.exe$/i.test(process.executablePath || '')) return { kind: 'desktop-app', label: 'Windows app' };
+  if (/\.exe$/i.test(process.executablePath || ''))
+    return { kind: 'desktop-app', label: 'Windows app' };
   return { kind: 'process', label: 'Process' };
 }
 
@@ -65,7 +76,8 @@ function collectHelpers(rootPid, worktreeId, childrenByParent, matches, ambiguou
       visited.add(childPid);
 
       const childMatch = matches.get(childPid);
-      if (ambiguousPids.has(childPid) || (childMatch && childMatch.worktree.id !== worktreeId)) continue;
+      if (ambiguousPids.has(childPid) || (childMatch && childMatch.worktree.id !== worktreeId))
+        continue;
       const evidence = childMatch?.evidence ?? ['Child process lineage'];
       helpers.push(safeProcess(child, evidence));
       pending.push(childPid);
@@ -75,7 +87,13 @@ function collectHelpers(rootPid, worktreeId, childrenByParent, matches, ambiguou
   return helpers;
 }
 
-function normalizeRuntimeScan({ worktrees, processes, listeners, limitations = [], platform = process.platform }) {
+function normalizeRuntimeScan({
+  worktrees,
+  processes,
+  listeners,
+  limitations = [],
+  platform = process.platform,
+}) {
   const matches = new Map();
   const unmatched = [];
   const ambiguousPids = new Set();
@@ -88,18 +106,24 @@ function normalizeRuntimeScan({ worktrees, processes, listeners, limitations = [
   }
 
   for (const process of processes) {
-    const worktreeMatches = worktrees.filter((worktree) => processReferencesWorktree(process, worktree.path, platform));
+    const worktreeMatches = worktrees.filter((worktree) =>
+      processReferencesWorktree(process, worktree.path, platform),
+    );
     if (worktreeMatches.length === 1) {
       const evidence = [];
-      if (pathIsInsideWorktree(process.executablePath, worktreeMatches[0].path, platform)) evidence.push('Executable path references this worktree');
-      if (pathIsInsideWorktree(process.commandLine, worktreeMatches[0].path, platform)) evidence.push('Command line references this worktree');
+      if (pathIsInsideWorktree(process.executablePath, worktreeMatches[0].path, platform))
+        evidence.push('Executable path references this worktree');
+      if (pathIsInsideWorktree(process.commandLine, worktreeMatches[0].path, platform))
+        evidence.push('Command line references this worktree');
       matches.set(Number(process.pid), { process, worktree: worktreeMatches[0], evidence });
     } else if (worktreeMatches.length > 1) {
       ambiguousPids.add(Number(process.pid));
       const ownedListeners = listenersForProcess(Number(process.pid), listeners);
       const classification = classifyRuntime(process, ownedListeners);
       unmatched.push({
-        process: safeProcess(process, ['Executable path or command line references multiple configured worktrees']),
+        process: safeProcess(process, [
+          'Executable path or command line references multiple configured worktrees',
+        ]),
         reason: 'ambiguous-worktree',
         kind: classification.kind,
         kindLabel: classification.label,
@@ -116,7 +140,13 @@ function normalizeRuntimeScan({ worktrees, processes, listeners, limitations = [
     if (hasMatchedParent && ownedListeners.length === 0) continue;
 
     const classification = classifyRuntime(match.process, ownedListeners);
-    const helperProcesses = collectHelpers(pid, match.worktree.id, childrenByParent, matches, ambiguousPids);
+    const helperProcesses = collectHelpers(
+      pid,
+      match.worktree.id,
+      childrenByParent,
+      matches,
+      ambiguousPids,
+    );
 
     runtimes.push({
       id: `process-${pid}`,
@@ -136,14 +166,19 @@ function normalizeRuntimeScan({ worktrees, processes, listeners, limitations = [
   const matchedPids = new Set(matches.keys());
   for (const process of processes) {
     const pid = Number(process.pid);
-    if (matchedPids.has(pid) || unmatched.some((candidate) => candidate.process.pid === pid)) continue;
+    if (matchedPids.has(pid) || unmatched.some((candidate) => candidate.process.pid === pid))
+      continue;
     const ownedListeners = listenersForProcess(pid, listeners);
     const classification = classifyRuntime(process, ownedListeners);
     if (ownedListeners.length || classification.kind === 'browser-dev-server') {
       unmatched.push({
         process: safeProcess(process, [
-          ...(ownedListeners.length ? ['Owns a TCP listening endpoint; no unique worktree path match'] : []),
-          ...(classification.kind === 'browser-dev-server' ? ['Process metadata identifies a browser development server'] : []),
+          ...(ownedListeners.length
+            ? ['Owns a TCP listening endpoint; no unique worktree path match']
+            : []),
+          ...(classification.kind === 'browser-dev-server'
+            ? ['Process metadata identifies a browser development server']
+            : []),
         ]),
         reason: 'no-worktree-match',
         kind: classification.kind,
@@ -157,11 +192,22 @@ function normalizeRuntimeScan({ worktrees, processes, listeners, limitations = [
   const missingExecutablePaths = processes.filter((item) => !item.executablePath).length;
   const missingCommandLines = processes.filter((item) => !item.commandLine).length;
   const fieldLimitations = [];
-  if (missingExecutablePaths) fieldLimitations.push(`Executable path metadata was unavailable for ${missingExecutablePaths} process records.`);
-  if (missingCommandLines) fieldLimitations.push(`Command line metadata was unavailable for ${missingCommandLines} process records.`);
+  if (missingExecutablePaths)
+    fieldLimitations.push(
+      `Executable path metadata was unavailable for ${missingExecutablePaths} process records.`,
+    );
+  if (missingCommandLines)
+    fieldLimitations.push(
+      `Command line metadata was unavailable for ${missingCommandLines} process records.`,
+    );
   const processPids = new Set(processes.map((item) => Number(item.pid)));
-  const listenersWithoutProcess = listeners.filter((listener) => !processPids.has(Number(listener.pid))).length;
-  if (listenersWithoutProcess) fieldLimitations.push(`Process records were unavailable for ${listenersWithoutProcess} listening endpoint owners.`);
+  const listenersWithoutProcess = listeners.filter(
+    (listener) => !processPids.has(Number(listener.pid)),
+  ).length;
+  if (listenersWithoutProcess)
+    fieldLimitations.push(
+      `Process records were unavailable for ${listenersWithoutProcess} listening endpoint owners.`,
+    );
 
   return { runtimes, unmatched, limitations: [...limitations, ...fieldLimitations] };
 }
