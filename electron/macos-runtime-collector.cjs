@@ -63,7 +63,7 @@ async function runTool(exec, file, args) {
     return (await exec(file, args, execOptions)).stdout;
   } catch (error) {
     // lsof exits 1 when it lists nothing or skipped inaccessible entries, but still prints results.
-    if (typeof error?.stdout === 'string' && error.stdout) return error.stdout;
+    if (error?.code === 1 && typeof error.stdout === 'string') return error.stdout;
     throw error;
   }
 }
@@ -78,6 +78,7 @@ async function collectMacosRuntimeData({ platform = process.platform, exec = exe
   }
 
   const limitations = [];
+  let failedScans = 0;
   let processes = [];
   try {
     const [commands, executables] = await Promise.all([
@@ -86,6 +87,7 @@ async function collectMacosRuntimeData({ platform = process.platform, exec = exe
     ]);
     processes = parseMacosProcesses(commands, executables);
   } catch {
+    failedScans += 1;
     limitations.push('macOS process metadata is unavailable for this scan.');
   }
 
@@ -95,11 +97,11 @@ async function collectMacosRuntimeData({ platform = process.platform, exec = exe
       await runTool(exec, '/usr/sbin/lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-F', 'pn']),
     );
   } catch {
+    failedScans += 1;
     limitations.push('macOS TCP listener ownership is unavailable for this scan.');
   }
 
-  if (!processes.length && limitations.length === 2)
-    throw new Error('The macOS process and listener scan could not complete.');
+  if (failedScans === 2) throw new Error('The macOS process and listener scan could not complete.');
   return { processes, listeners, limitations };
 }
 

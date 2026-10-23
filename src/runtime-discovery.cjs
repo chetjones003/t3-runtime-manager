@@ -50,7 +50,7 @@ function classifyRuntime(process, ownedListeners, platform) {
   if (isDevServer) return { kind: 'browser-dev-server', label: 'Browser dev server' };
   if (platform === 'darwin' && /\.app\/Contents\/MacOS\//.test(process.executablePath || ''))
     return { kind: 'desktop-app', label: 'macOS app' };
-  if (platform !== 'darwin' && /\.exe$/i.test(process.executablePath || ''))
+  if (platform === 'win32' && /\.exe$/i.test(process.executablePath || ''))
     return { kind: 'desktop-app', label: 'Windows app' };
   return { kind: 'process', label: ownedListeners.length ? 'Listening process' : 'Process' };
 }

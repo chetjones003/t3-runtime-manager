@@ -58,7 +58,7 @@ test('the collector runs ps and lsof and tolerates lsof exiting non-zero with pa
   const calls = [];
   const exec = async (file, args) => {
     calls.push([file, ...args]);
-    if (file.endsWith('lsof')) throw Object.assign(new Error('exit 1'), { stdout: lsof });
+    if (file.endsWith('lsof')) throw Object.assign(new Error('exit 1'), { code: 1, stdout: lsof });
     return { stdout: args.includes('pid=,ppid=,command=') ? psCommands : psComm };
   };
   const data = await collectMacosRuntimeData({ platform: 'darwin', exec });
