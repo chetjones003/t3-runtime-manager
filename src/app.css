@@ -164,6 +164,7 @@ button:focus-visible {
 .count-pill {
   font-size: 9px;
   vertical-align: middle;
+  letter-spacing: normal;
   margin-left: 5px;
   color: #bac7f7;
   background: #1b2231;
