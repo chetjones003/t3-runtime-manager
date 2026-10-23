@@ -1,6 +1,6 @@
 # Thread App Manager
 
-React + Electron shell for a multipurpose developer app manager. The Workspace cockpit shows sample T3 threads, their worktrees, and desktop, browser, and other runtime targets.
+React + Electron desktop app for viewing T3 Code threads and the applications running in their worktrees.
 
 ## Run
 
@@ -8,9 +8,11 @@ Install dependencies with `npm install`, then start the desktop app with `npm ru
 
 ## Current scope
 
-The cockpit still uses sample T3 thread and worktree records. On Windows, macOS and Linux, **Refresh runtimes** performs a read-only process and TCP listener scan and shows runtime groups with direct executable-path or command-line evidence for those worktrees. Raw command lines stay in Electron's main process and are omitted from the response. The latest scan remains in memory for the current app session.
+Connect with a one-time code from **T3 Settings → Connections**. The cockpit then lists threads with worktrees across projects, refreshes their state every five seconds, and opens a selected thread in T3 Code. Thread access is read-only.
 
-T3 synchronization, remembered workspace settings, process control, builds, launches, and window embedding are not connected yet.
+**Refresh runtimes** scans processes and TCP listeners for the local worktrees. On Windows, every discovered desktop window is attached to its associated runtime and parked inside the manager; the selected runtime's actual window is shown in the preview and accepts direct mouse and keyboard input. The preview container resizes to the available app area without resizing the external application. Fullscreen expands that same embedded window inside the manager frame; **Exit fullscreen** returns to the workspace. When a runtime has no window, the preview shows its loopback page when available. Native window embedding is Windows-only.
+
+Build, start, stop, and remembered workspace settings are not connected yet.
 
 ## Verify runtime discovery
 

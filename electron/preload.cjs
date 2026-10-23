@@ -4,5 +4,22 @@ contextBridge.exposeInMainWorld(
   'threadAppManager',
   Object.freeze({
     discoverRuntimes: (worktrees) => ipcRenderer.invoke('runtime-discovery:scan', worktrees),
+    getRuntimePreview: (runtimeId) => ipcRenderer.invoke('runtime:preview', runtimeId),
+    sendPreviewInput: (runtimeId, input) =>
+      ipcRenderer.invoke('runtime:preview-input', runtimeId, input),
+    embedRuntimeWindow: (runtimeId, bounds) =>
+      ipcRenderer.invoke('runtime:embed-window', runtimeId, bounds),
+    updateEmbeddedRuntimeWindow: (runtimeId, bounds) =>
+      ipcRenderer.invoke('runtime:update-embedded-window', runtimeId, bounds),
+    restoreEmbeddedRuntimeWindow: (runtimeId) =>
+      ipcRenderer.invoke('runtime:restore-embedded-window', runtimeId),
+    parkEmbeddedRuntimeWindow: (runtimeId) =>
+      ipcRenderer.invoke('runtime:park-embedded-window', runtimeId),
+    prepareEmbeddedRuntimeWindows: (runtimeIds) =>
+      ipcRenderer.invoke('runtime:prepare-embedded-windows', runtimeIds),
+    takeControl: (runtimeId) => ipcRenderer.invoke('runtime:take-control', runtimeId),
+    getT3Threads: () => ipcRenderer.invoke('t3:threads'),
+    connectT3: (code) => ipcRenderer.invoke('t3:connect', code),
+    openT3Thread: (threadId) => ipcRenderer.invoke('t3:open-thread', threadId),
   }),
 );

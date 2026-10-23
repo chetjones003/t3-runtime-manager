@@ -289,4 +289,4 @@ function normalizeRuntimeScan({
   };
 }
 
-module.exports = { normalizeRuntimeScan };
+module.exports = { classifyRuntime, normalizeRuntimeScan };
