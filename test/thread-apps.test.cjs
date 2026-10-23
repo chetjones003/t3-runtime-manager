@@ -34,7 +34,7 @@ const processes = [
   proc(70, 60, 'electron.exe', {
     executablePath: `${WT}\\node_modules\\electron\\dist\\electron.exe`,
     commandLine: `electron.exe ${WT}`,
-    windowTitle: 'Thread App Manager',
+    windowTitle: 'T3 Runtime Manager',
   }),
   proc(71, 70, 'electron.exe', {
     executablePath: `${WT}\\node_modules\\electron\\dist\\electron.exe`,
@@ -59,7 +59,7 @@ test('the agent is hidden and a launched app is named by its window with its lau
   );
 
   const [electronApp, terminalServer] = apps;
-  assert.equal(electronApp.name, 'Thread App Manager');
+  assert.equal(electronApp.name, 'T3 Runtime Manager');
   assert.equal(electronApp.kind, 'desktop-app');
   assert.equal(electronApp.process.pid, 70);
   assert.deepEqual(electronApp.listeners, [{ address: '127.0.0.1', port: 5178 }]);

@@ -230,7 +230,7 @@ function createWindow() {
     minWidth: Math.min(920, width),
     minHeight: Math.min(650, height),
     backgroundColor: '#0b0e13',
-    title: 'Thread App Manager',
+    title: 'T3 Runtime Manager',
     frame: process.platform !== 'win32',
     autoHideMenuBar: process.platform === 'win32',
     webPreferences: {

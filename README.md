@@ -1,19 +1,51 @@
-# Thread App Manager
+# T3 Runtime Manager
 
-React + Electron desktop app for viewing T3 Code threads and the applications running in their worktrees.
+T3 Runtime Manager is a desktop companion for T3 Code. It shows threads that have worktrees, the local apps running in those worktrees, and their available runtime previews.
 
-## Run
+Connect with a one-time code from **T3 Settings → Connections**. The thread view is read-only. Runtime discovery refreshes every five seconds. On Windows, the app can show a live window capture, forward mouse and keyboard input to that window, or bring it to the foreground with **Take Control**. When a runtime has no discoverable window, its loopback page is shown when available.
 
-Install dependencies with `npm install`, then start the desktop app with `npm run dev`.
+Building, starting, stopping, and remembered workspace settings are not connected yet.
 
-## Current scope
+## Install from the terminal
 
-Connect with a one-time code from **T3 Settings → Connections**. The cockpit then lists threads with worktrees across projects, refreshes their state every five seconds, and opens a selected thread in T3 Code. Thread access is read-only.
+Each update merged to `main` increments the patch version and publishes installers to [GitHub Releases](https://github.com/chetjones003/thread-app-manager/releases). The install commands download the latest release and print progress in the terminal.
 
-**Refresh runtimes** scans processes and TCP listeners for the local worktrees. Threads are grouped by project. On Windows, the selected runtime's window is shown as a live capture, with mouse and keyboard input forwarded to that same window. Pointer positions are mapped through the fitted image and translated into the target window's client coordinates under per-monitor DPI awareness. **Take Control** brings the selected app window forward. When a runtime has no discoverable window, the preview shows its loopback page when available.
+**Windows PowerShell**
 
-Build, start, stop, and remembered workspace settings are not connected yet.
+```powershell
+irm https://raw.githubusercontent.com/chetjones003/thread-app-manager/main/scripts/install.ps1 | iex
+```
 
-## Verify runtime discovery
+**Linux and macOS**
 
-Run `npm test` for fixture-based OS-neutral scan tests. On Windows run `npm run smoke:windows`, on macOS run `npm run smoke:macos`, and on Linux run `npm run smoke:linux`, to verify the real process/listener collector against a short-lived probe process. macOS discovery uses `ps` and `lsof` without elevation; executable paths or listener ownership that macOS withholds are reported as partial information. Linux discovery reads `/proc` directly (process stat, exe, cmdline, `net/tcp`, `net/tcp6` and socket file descriptors) without elevation or external tools; processes, executable links or listener sockets that permissions or namespaces hide are reported as partial information.
+```sh
+curl -fsSL https://raw.githubusercontent.com/chetjones003/thread-app-manager/main/scripts/install.sh | bash
+```
+
+On Debian and Ubuntu x86_64, the script installs the `.deb` package with apt. On macOS, it copies the matching architecture's app bundle to `/Applications`. Other Linux distributions can download the x86_64 AppImage from the latest release, make it executable, and run it:
+
+```sh
+chmod +x "T3 Runtime Manager-"*.AppImage
+./"T3 Runtime Manager-"*.AppImage
+```
+
+The current release workflow packages Windows x64, macOS Intel and Apple Silicon, and Linux x86_64. Package-manager catalog installs (`winget`, Scoop, Homebrew, AUR) need separate registry manifests and are not available yet.
+
+## Developer guide
+
+Use Node.js 22 and npm. Install the locked dependencies and start the Vite and Electron development apps:
+
+```sh
+npm ci
+npm run dev
+```
+
+Useful project commands:
+
+- `npm test` runs the fixture-based tests.
+- `npm run build` builds the web app.
+- `npm run format:check` checks formatting.
+- `npm run smoke:windows`, `npm run smoke:macos`, or `npm run smoke:linux` checks runtime discovery on the matching OS.
+- `npm run dist:win`, `npm run dist:mac`, or `npm run dist:linux` builds local installers for a platform. `npm run dist` targets the current platform.
+
+macOS signing and notarization are not configured yet. Linux runtime discovery reads `/proc` without elevation, while macOS discovery uses `ps` and `lsof`; operating-system permissions can limit the details each platform exposes.

@@ -4,6 +4,47 @@
   "private": true,
   "description": "React and Electron prototype for managing applications associated with agent worktrees.",
   "main": "electron/main.cjs",
+  "build": {
+    "appId": "com.t3code.runtimemanager",
+    "productName": "T3 Runtime Manager",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "src/**/*.cjs",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": [
+        "deb",
+        "AppImage",
+        "tar.gz"
+      ],
+      "category": "Development",
+      "maintainer": "T3 Runtime Manager contributors"
+    }
+  },
   "scripts": {
     "dev": "concurrently -k --names vite,electron --success command-electron \"vite --host 127.0.0.1\" \"wait-on tcp:127.0.0.1:5178 && node scripts/run-electron.cjs --dev\"",
     "build": "vite build",
@@ -12,7 +53,11 @@
     "smoke:windows": "node scripts/smoke-windows-runtime-discovery.cjs",
     "smoke:linux": "node scripts/smoke-linux-runtime-discovery.cjs",
     "smoke:macos": "node scripts/smoke-macos-runtime-discovery.cjs",
-    "desktop": "node scripts/run-electron.cjs"
+    "desktop": "node scripts/run-electron.cjs",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux"
   },
   "dependencies": {
     "react": "^19.1.0",
@@ -22,6 +67,7 @@
     "@vitejs/plugin-react": "^4.7.0",
     "concurrently": "^9.2.0",
     "electron": "^45.0.0",
+    "electron-builder": "^26.0.12",
     "prettier": "^3.9.10",
     "vite": "^6.4.0",
     "wait-on": "^8.0.4"
