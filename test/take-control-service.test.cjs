@@ -4,7 +4,7 @@ const { createTakeControlService } = require('../electron/take-control-service.c
 
 const runtime = (overrides = {}) => ({
   id: 'process-100',
-  process: { pid: 100, name: 'app.exe' },
+  process: { pid: 100, name: 'app.exe', windowTitle: 'App window' },
   listeners: [],
   helpers: [],
   ...overrides,
