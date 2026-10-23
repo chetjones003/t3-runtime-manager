@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { startRuntimePreview } from './runtime-preview.mjs';
 
 const THREAD_POLL_MS = 5000;
 
@@ -240,30 +241,19 @@ function RuntimePreview({ runtime }) {
 
     (async () => {
       try {
-        const result = await window.threadAppManager.getRuntimePreview(runtime.id);
-        if (cancelled) return;
-        if (result.kind !== 'window') {
+        const { preview: result, stream: active } = await startRuntimePreview(runtime.id, {
+          getRuntimePreview: (runtimeId) => window.threadAppManager.getRuntimePreview(runtimeId),
+          getDisplayMedia: (options) => navigator.mediaDevices.getDisplayMedia(options),
+        });
+        if (cancelled) {
+          active?.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        if (!active) {
           setPreview(result);
           return;
         }
-        if (typeof result.sourceId !== 'string') {
-          throw new Error('Electron did not provide a capture source for this window.');
-        }
-        const active = await navigator.mediaDevices.getDisplayMedia({
-          audio: false,
-          video: {
-            cursor: 'never',
-            frameRate: { ideal: 15, max: 15 },
-          },
-        });
         const videoTrack = active.getVideoTracks()[0];
-        if (videoTrack) {
-          try {
-            await videoTrack.applyConstraints({ cursor: { exact: 'never' } });
-          } catch {
-            // Some desktop capture backends only honor the cursor preference at stream creation.
-          }
-        }
         if (cancelled) {
           active.getTracks().forEach((track) => track.stop());
           return;
