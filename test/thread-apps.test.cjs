@@ -109,3 +109,35 @@ test('a runtime launched straight from an agent without a window falls back to i
     [{ name: 'worker.exe', kind: 'desktop-app' }],
   );
 });
+
+test('a desktop app sorts ahead of compiler helpers and is selected as the preview', () => {
+  const runtimeProcesses = [
+    proc(100, 1, 'bash.exe', { commandLine: 'bash.exe -c npm run dev' }),
+    proc(101, 100, 'cl.exe', {
+      executablePath: 'C:\\Program Files\\Microsoft Visual Studio\\cl.exe',
+      commandLine: `cl.exe /c ${WT}\\src\\main.cpp`,
+    }),
+    proc(200, 1, 'bash.exe', { commandLine: 'bash.exe -c GoSurvey.exe' }),
+    proc(201, 200, 'GoSurvey.exe', {
+      executablePath: `${WT}\\build\\GoSurvey.exe`,
+      commandLine: `${WT}\\build\\GoSurvey.exe`,
+    }),
+  ];
+  const scan = normalizeRuntimeScan({
+    worktrees: [{ id: 'alpha', path: WT }],
+    processes: runtimeProcesses,
+    listeners: [],
+    platform: 'win32',
+  });
+  const apps = groupRuntimeApps({
+    runtimes: scan.runtimes,
+    processes: runtimeProcesses,
+    listeners: [],
+    platform: 'win32',
+  });
+
+  assert.equal(apps[0].process.name, 'GoSurvey.exe');
+  assert.equal(apps[0].kind, 'desktop-app');
+  assert.equal(apps[1].process.name, 'cl.exe');
+  assert.equal(apps[1].kind, 'process');
+});

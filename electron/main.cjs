@@ -1,22 +1,23 @@
-const { app, BrowserWindow, ipcMain, safeStorage, screen, shell } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  desktopCapturer,
+  ipcMain,
+  screen,
+  safeStorage,
+  session,
+  shell,
+} = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { collectRuntimeData } = require('./runtime-collector.cjs');
 const { normalizeRuntimeScan } = require('../src/runtime-discovery.cjs');
 const { groupRuntimeApps } = require('../src/thread-apps.cjs');
-const { placePreviewHost } = require('../src/preview-bounds.cjs');
 const { createT3Service } = require('./t3-service.cjs');
 const { createTakeControlService } = require('./take-control-service.cjs');
 
 let mainWindow;
-let previewHostWindow;
-let previewBounds;
-let previewHostReady;
-let activePreviewRuntimeId;
-let pendingNativeResize;
-let nativeResizeTimer;
-let nativeResizeRunning = false;
 
 function validateWorktrees(worktrees) {
   if (!Array.isArray(worktrees)) throw new Error('Invalid worktree list: expected an array.');
@@ -46,131 +47,56 @@ ipcMain.handle('runtime:take-control', (event, runtimeId) => {
   return takeControl.takeControl(runtimeId);
 });
 
-ipcMain.handle('runtime:embed-window', async (event, runtimeId, bounds) => {
+ipcMain.handle('runtime:preview-input', (event, runtimeId, input) => {
+  assertTrustedSender(event, 'Preview input');
+  if (typeof runtimeId !== 'string' || runtimeId.length > 200) throw new Error('Invalid runtime.');
+  return takeControl.sendPreviewInput(runtimeId, input);
+});
+
+ipcMain.handle('window:control', (event, action) => {
+  assertTrustedSender(event, 'Window controls');
+  if (process.platform !== 'win32' || !mainWindow) return false;
+  if (action === 'state') return mainWindow.isMaximized();
+  if (action === 'minimize') {
+    mainWindow.minimize();
+    return false;
+  }
+  if (action === 'toggle-maximize') {
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+    return mainWindow.isMaximized();
+  }
+  if (action === 'close') {
+    mainWindow.close();
+    return true;
+  }
+  throw new Error('Invalid window control action.');
+});
+
+ipcMain.handle('runtime:embed-window', (event, runtimeId, bounds) => {
   assertTrustedSender(event, 'Runtime window embedding');
   if (typeof runtimeId !== 'string' || runtimeId.length > 200) throw new Error('Invalid runtime.');
-  if (!validPreviewBounds(bounds)) throw new Error('Invalid preview bounds.');
-  const hostHandle = await showPreviewHost(bounds);
-  if (!hostHandle) throw new Error('The native preview host is unavailable.');
-  const embedded = await takeControl.embedWindow(runtimeId, hostHandle, bounds);
-  if (embedded) activePreviewRuntimeId = runtimeId;
-  return embedded;
+  const hostHandle = ownWindowHandle();
+  if (!hostHandle) throw new Error('The manager window is unavailable.');
+  return takeControl.embedWindow(runtimeId, hostHandle, bounds);
 });
 
 ipcMain.handle('runtime:update-embedded-window', (event, runtimeId, bounds) => {
   assertTrustedSender(event, 'Embedded window sizing');
   if (typeof runtimeId !== 'string' || runtimeId.length > 200) throw new Error('Invalid runtime.');
-  if (!validPreviewBounds(bounds)) throw new Error('Invalid preview bounds.');
-  positionPreviewHost(bounds);
-  activePreviewRuntimeId = runtimeId;
-  return scheduleNativeResize(runtimeId, bounds);
+  return takeControl.updateEmbeddedWindow(runtimeId, bounds);
 });
 
-ipcMain.handle('runtime:hide-preview', (event) => {
-  assertTrustedSender(event, 'Runtime preview');
-  previewHostWindow?.hide();
-  previewBounds = null;
-  activePreviewRuntimeId = null;
+ipcMain.handle('runtime:restore-embedded-window', (event, runtimeId) => {
+  assertTrustedSender(event, 'Embedded window restore');
+  if (typeof runtimeId !== 'string' || runtimeId.length > 200) throw new Error('Invalid runtime.');
+  return takeControl.restoreEmbeddedWindow(runtimeId);
 });
 
-function nativeHandle(window) {
-  if (!window || process.platform !== 'win32') return null;
-  const buffer = window.getNativeWindowHandle();
+function ownWindowHandle() {
+  if (!mainWindow || process.platform !== 'win32') return null;
+  const buffer = mainWindow.getNativeWindowHandle();
   return buffer.length >= 8 ? String(buffer.readBigUInt64LE(0)) : String(buffer.readUInt32LE(0));
-}
-
-function validPreviewBounds(bounds) {
-  return (
-    bounds &&
-    ['x', 'y', 'width', 'height'].every((key) => Number.isInteger(bounds[key])) &&
-    bounds.x >= 0 &&
-    bounds.y >= 0 &&
-    bounds.x <= 10000 &&
-    bounds.y <= 10000 &&
-    bounds.width >= 100 &&
-    bounds.height >= 100 &&
-    bounds.width <= 10000 &&
-    bounds.height <= 10000
-  );
-}
-
-function previewScreenBounds(bounds) {
-  const content = mainWindow.getContentBounds();
-  return placePreviewHost(content, bounds);
-}
-
-function positionPreviewHost(bounds) {
-  if (!previewHostWindow || previewHostWindow.isDestroyed() || !mainWindow) return false;
-  previewBounds = bounds;
-  previewHostWindow.setBounds(previewScreenBounds(bounds), false);
-  return true;
-}
-
-function repositionPreviewHost() {
-  if (!previewBounds || !activePreviewRuntimeId || !positionPreviewHost(previewBounds)) return;
-  scheduleNativeResize(activePreviewRuntimeId, previewBounds).catch(() => {});
-}
-
-function scheduleNativeResize(runtimeId, bounds) {
-  return new Promise((resolve) => {
-    if (pendingNativeResize) {
-      pendingNativeResize.runtimeId = runtimeId;
-      pendingNativeResize.bounds = bounds;
-      pendingNativeResize.waiters.push(resolve);
-    } else {
-      pendingNativeResize = { runtimeId, bounds, waiters: [resolve] };
-    }
-    if (nativeResizeTimer) clearTimeout(nativeResizeTimer);
-    if (!nativeResizeRunning) nativeResizeTimer = setTimeout(flushNativeResize, 40);
-  });
-}
-
-async function flushNativeResize() {
-  nativeResizeTimer = null;
-  if (nativeResizeRunning || !pendingNativeResize) return;
-  nativeResizeRunning = true;
-  const job = pendingNativeResize;
-  pendingNativeResize = null;
-  let updated = false;
-  try {
-    updated = await takeControl.updateEmbeddedWindow(job.runtimeId, job.bounds);
-  } catch {
-    updated = false;
-  }
-  job.waiters.forEach((resolve) => resolve(updated));
-  nativeResizeRunning = false;
-  if (pendingNativeResize && !nativeResizeTimer)
-    nativeResizeTimer = setTimeout(flushNativeResize, 40);
-}
-
-async function showPreviewHost(bounds) {
-  if (process.platform !== 'win32' || !mainWindow) return null;
-  if (!previewHostWindow || previewHostWindow.isDestroyed()) {
-    previewHostWindow = new BrowserWindow({
-      parent: mainWindow,
-      x: 0,
-      y: 0,
-      width: 100,
-      height: 100,
-      frame: false,
-      transparent: true,
-      backgroundColor: '#00000000',
-      hasShadow: false,
-      skipTaskbar: true,
-      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
-    });
-    previewHostReady = previewHostWindow.loadURL(
-      'data:text/html,<html><head><style>html,body{margin:0;width:100%25;height:100%25;background:transparent;overflow:hidden}</style></head><body></body></html>',
-    );
-    previewHostWindow.on('closed', () => {
-      previewHostWindow = null;
-      previewHostReady = null;
-    });
-  }
-  await previewHostReady;
-  positionPreviewHost(bounds);
-  previewHostWindow.showInactive();
-  return nativeHandle(previewHostWindow);
 }
 
 function isTrustedCockpitUrl(senderUrl) {
@@ -189,7 +115,24 @@ ipcMain.handle('runtime:preview', async (event, runtimeId) => {
   assertTrustedSender(event, 'Runtime preview');
   if (typeof runtimeId !== 'string' || runtimeId.length > 200) throw new Error('Invalid runtime.');
 
-  return takeControl.getPreview(runtimeId);
+  const preview = await takeControl.getPreview(runtimeId);
+  if (preview.kind !== 'window') return preview;
+  // Mirroring this window into itself would only show an endless tunnel of itself.
+  if (preview.handle === ownWindowHandle()) return { kind: 'self' };
+
+  let source;
+  // A hidden Qt window may need a moment after ShowWindow before Windows exposes it
+  // through the desktop capture API.
+  for (let attempt = 0; attempt < 5 && !source; attempt += 1) {
+    const sources = await desktopCapturer.getSources({
+      types: ['window'],
+      thumbnailSize: { width: 0, height: 0 },
+    });
+    source = sources.find((candidate) => candidate.id.startsWith(`window:${preview.handle}:`));
+    if (!source && attempt < 4) await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  if (!source) return { kind: 'none' };
+  return { kind: 'window', sourceId: source.id };
 });
 
 function assertTrustedSender(event, feature) {
@@ -276,13 +219,18 @@ ipcMain.handle('t3:open-thread', (event, threadId) => {
 });
 
 function createWindow() {
+  const workArea = screen.getPrimaryDisplay().workAreaSize;
+  const width = Math.min(1400, Math.max(920, workArea.width - 40));
+  const height = Math.min(900, Math.max(650, workArea.height - 40));
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 920,
-    minHeight: 650,
+    width,
+    height,
+    minWidth: Math.min(920, width),
+    minHeight: Math.min(650, height),
     backgroundColor: '#0b0e13',
     title: 'Thread App Manager',
+    frame: process.platform !== 'win32',
+    autoHideMenuBar: process.platform === 'win32',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -290,6 +238,14 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
     },
   });
+
+  if (process.platform === 'win32') {
+    mainWindow.setMenuBarVisibility(false);
+    const publishWindowState = () =>
+      mainWindow?.webContents.send('window:state', mainWindow.isMaximized());
+    mainWindow.on('maximize', publishWindowState);
+    mainWindow.on('unmaximize', publishWindowState);
+  }
 
   if (process.argv.includes('--dev')) {
     mainWindow.loadURL('http://127.0.0.1:5178');
@@ -302,27 +258,30 @@ function createWindow() {
     if (closing) return;
     event.preventDefault();
     closing = true;
-    takeControl.restoreAllEmbeds().finally(() => {
-      previewHostWindow?.destroy();
-      mainWindow?.destroy();
-    });
+    takeControl.restoreAllEmbeds().finally(() => mainWindow?.destroy());
   });
 
   mainWindow.on('closed', () => {
-    previewHostWindow?.destroy();
     mainWindow = null;
   });
-  mainWindow.on('move', () => {
-    if (previewBounds) positionPreviewHost(previewBounds);
-  });
-  mainWindow.on('resize', repositionPreviewHost);
 }
 
 app.whenReady().then(() => {
+  const mayCaptureDisplay = (webContents, permission, requestingUrl, isMainFrame) =>
+    permission === 'display-capture' &&
+    isMainFrame === true &&
+    Boolean(mainWindow && webContents === mainWindow.webContents) &&
+    isTrustedCockpitUrl(requestingUrl);
+
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) =>
+    mayCaptureDisplay(webContents, permission, details?.requestingUrl, details?.isMainFrame),
+  );
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) =>
+    callback(
+      mayCaptureDisplay(webContents, permission, details?.requestingUrl, details?.isMainFrame),
+    ),
+  );
   createWindow();
-  screen.on('display-metrics-changed', repositionPreviewHost);
-  screen.on('display-added', repositionPreviewHost);
-  screen.on('display-removed', repositionPreviewHost);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

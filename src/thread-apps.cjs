@@ -66,7 +66,7 @@ function publicProcess(process, extra = {}) {
   };
 }
 
-function choosePrimary(members, listeners, platform) {
+function choosePrimary(members, matchedPids, listeners, platform) {
   const windowed = members.find((member) => member.windowTitle);
   if (windowed) return windowed;
   const classified = members.map((member) => ({
@@ -75,8 +75,18 @@ function choosePrimary(members, listeners, platform) {
     listening: listenersOf(Number(member.pid), listeners).length > 0,
   }));
   return (
+    classified.find(
+      ({ member, kind }) =>
+        matchedPids.has(Number(member.pid)) &&
+        kind === 'desktop-app' &&
+        !SHELL_NAME.test(member.name ?? ''),
+    )?.member ??
+    classified.find(
+      ({ member }) => matchedPids.has(Number(member.pid)) && !SHELL_NAME.test(member.name ?? ''),
+    )?.member ??
     classified.find((entry) => entry.kind === 'browser-dev-server' && entry.listening)?.member ??
     classified.find((entry) => entry.listening)?.member ??
+    members.find((member) => !SHELL_NAME.test(member.name ?? '')) ??
     members[0]
   );
 }
@@ -97,15 +107,18 @@ function groupRuntimeApps({ runtimes, processes, listeners, platform }) {
     if (!process || AGENT_NAME.test(process.name ?? '')) continue;
     const root = launchRoot(Number(process.pid), processesByPid);
     const key = `${runtime.worktreeId}\u0000${root.pid}`;
-    const group = groups.get(key) ?? { root, worktreeId: runtime.worktreeId, evidence: new Set() };
+    const group =
+      groups.get(key) ??
+      { root, worktreeId: runtime.worktreeId, evidence: new Set(), matchedPids: new Set() };
     runtime.evidence.forEach((item) => group.evidence.add(item));
+    group.matchedPids.add(Number(process.pid));
     groups.set(key, group);
   }
 
   const apps = [];
   for (const group of groups.values()) {
     const members = [group.root, ...descendantsOf(Number(group.root.pid), childrenByParent)];
-    const primary = choosePrimary(members, listeners, platform);
+    const primary = choosePrimary(members, group.matchedPids, listeners, platform);
     const groupListeners = members.flatMap((member) => listenersOf(Number(member.pid), listeners));
     const primaryListeners = listenersOf(Number(primary.pid), listeners);
     const classification = primary.windowTitle
@@ -140,7 +153,8 @@ function groupRuntimeApps({ runtimes, processes, listeners, platform }) {
     });
   }
 
-  const rank = (app) => (app.process.windowTitle ? 0 : app.listeners.length ? 1 : 2);
+  const rank = (app) =>
+    app.process.windowTitle ? 0 : app.kind === 'desktop-app' ? 1 : app.listeners.length ? 2 : 3;
   return apps.sort((a, b) => rank(a) - rank(b) || a.process.pid - b.process.pid);
 }
 

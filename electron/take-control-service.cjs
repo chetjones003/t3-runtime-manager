@@ -15,8 +15,10 @@ async function runWindowScript(mode, targets, input) {
     ![
       'focus',
       'find',
+      'mouse',
+      'key',
       'embed',
-      'show-embed',
+      'embed-hidden',
       'update-embed',
       'hide-embed',
       'restore-embed',
@@ -25,23 +27,27 @@ async function runWindowScript(mode, targets, input) {
   )
     return 'none';
   const script = await readFile(windowScript, 'utf8');
-  const windowVariables =
-    mode === 'embed'
-      ? `$HostHandle = '${input.hostHandle}'\n$EmbedX = ${input.x}\n$EmbedY = ${input.y}\n$EmbedWidth = ${input.width}\n$EmbedHeight = ${input.height}\n`
-      : mode === 'hide-embed' || mode === 'show-embed'
-        ? `$EmbeddedHandle = '${input.handle}'\n`
-        : mode === 'update-embed'
-          ? `$EmbeddedHandle = '${input.handle}'\n$HostHandle = '${input.hostHandle}'\n$EmbedX = ${input.x}\n$EmbedY = ${input.y}\n$EmbedWidth = ${input.width}\n$EmbedHeight = ${input.height}\n`
-          : mode === 'restore-embed'
-            ? `$EmbeddedHandle = '${input.handle}'\n$OriginalState = '${JSON.stringify(input.state)}'\n`
-            : '';
+  const mouseVariables =
+    mode === 'mouse'
+      ? `$MouseType = '${input.type}'\n$MouseX = ${input.x}\n$MouseY = ${input.y}\n$MouseButton = '${input.button}'\n$MouseFlags = ${input.buttons}\n$MouseDelta = ${input.delta}\n`
+      : mode === 'key'
+        ? `$KeyCode = ${input.keyCode}\n$CharCodes = @(${input.charCodes.join(',')})\n$Modifiers = ${input.modifiers}\n`
+        : mode === 'embed' || mode === 'embed-hidden'
+          ? `$HostHandle = '${input.hostHandle}'\n$EmbedX = ${input.x}\n$EmbedY = ${input.y}\n$EmbedWidth = ${input.width}\n$EmbedHeight = ${input.height}\n`
+          : mode === 'hide-embed'
+            ? `$EmbeddedHandle = '${input.handle}'\n`
+            : mode === 'update-embed'
+              ? `$EmbeddedHandle = '${input.handle}'\n$HostHandle = '${input.hostHandle}'\n$EmbedX = ${input.x}\n$EmbedY = ${input.y}\n$EmbedWidth = ${input.width}\n$EmbedHeight = ${input.height}\n`
+              : mode === 'restore-embed'
+                ? `$EmbeddedHandle = '${input.handle}'\n$OriginalState = '${JSON.stringify(input.state)}'\n`
+                : '';
   const { stdout } = await execFileAsync(
     'powershell.exe',
     [
       '-NoProfile',
       '-NonInteractive',
       '-Command',
-      `$Mode = '${mode}'\n$Targets = '${encoded}'\n${windowVariables}${script}`,
+      `$Mode = '${mode}'\n$Targets = '${encoded}'\n${mouseVariables}${script}`,
     ],
     { windowsHide: true, timeout: 10000, encoding: 'utf8' },
   );
@@ -52,13 +58,8 @@ const focusWindowsProcessWindow = async (targets) =>
   (await runWindowScript('focus', targets)) === 'focused';
 
 const findWindowsProcessWindow = async (targets) => {
-  const result = await runWindowScript('find', targets);
-  try {
-    const window = JSON.parse(result);
-    return /^\d{1,20}$/.test(window.handle) ? window : null;
-  } catch {
-    return null;
-  }
+  const handle = await runWindowScript('find', targets);
+  return /^\d{1,20}$/.test(handle) ? handle : null;
 };
 
 // Remembers the processes of the latest scan so the renderer can only name a runtime id,
@@ -68,11 +69,9 @@ function createTakeControlService({
   focusWindow = focusWindowsProcessWindow,
   findWindow = findWindowsProcessWindow,
   openExternal,
-  runWindowScriptImpl = runWindowScript,
 }) {
   let latest = new Map();
   const embeds = new Map();
-  let activeRuntimeId = null;
 
   function remember(runtimes) {
     latest = new Map(runtimes.map((runtime) => [runtime.id, planTakeControl(runtime)]));
@@ -106,6 +105,50 @@ function createTakeControlService({
     return { action: platform === 'win32' ? 'none' : 'unsupported' };
   }
 
+  async function sendPreviewInput(runtimeId, input) {
+    const plan = planFor(runtimeId);
+    if (platform !== 'win32' || !plan.windowTargets?.length) return false;
+    if (input?.type === 'key') {
+      const validKey =
+        Number.isInteger(input.keyCode) &&
+        input.keyCode >= 0 &&
+        input.keyCode <= 255 &&
+        Array.isArray(input.charCodes) &&
+        input.charCodes.length <= 2 &&
+        input.charCodes.every((code) => Number.isInteger(code) && code >= 0 && code <= 65535) &&
+        Number.isInteger(input.modifiers) &&
+        input.modifiers >= 0 &&
+        input.modifiers <= 7;
+      if (!validKey) throw new Error('Invalid preview key input.');
+      try {
+        return (await runWindowScript('key', plan.windowTargets, input)) === 'sent';
+      } catch {
+        return false;
+      }
+    }
+    const valid =
+      input &&
+      ['move', 'down', 'up', 'wheel'].includes(input.type) &&
+      Number.isFinite(input.x) &&
+      input.x >= 0 &&
+      input.x <= 1 &&
+      Number.isFinite(input.y) &&
+      input.y >= 0 &&
+      input.y <= 1 &&
+      ['left', 'right'].includes(input.button) &&
+      Number.isInteger(input.buttons) &&
+      input.buttons >= 0 &&
+      input.buttons <= 3 &&
+      Number.isInteger(input.delta) &&
+      Math.abs(input.delta) <= 120;
+    if (!valid) throw new Error('Invalid preview input.');
+    try {
+      return (await runWindowScript('mouse', plan.windowTargets, input)) === 'sent';
+    } catch {
+      return false;
+    }
+  }
+
   function validEmbedBounds(bounds) {
     return (
       bounds &&
@@ -127,7 +170,7 @@ function createTakeControlService({
     const embedded = embeds.get(runtimeId);
     if (!embedded) return false;
     const updated =
-      (await runWindowScriptImpl('update-embed', embedded.targets, {
+      (await runWindowScript('update-embed', embedded.targets, {
         handle: embedded.handle,
         hostHandle: embedded.hostHandle,
         ...bounds,
@@ -142,55 +185,99 @@ function createTakeControlService({
     }
     const plan = planFor(runtimeId);
     if (!plan.targets.length) return false;
+    if (embeds.has(runtimeId)) return updateEmbeddedWindow(runtimeId, bounds);
     if (!plan.windowTargets?.length) return false;
-    if (activeRuntimeId && activeRuntimeId !== runtimeId) {
-      const previous = embeds.get(activeRuntimeId);
-      if (previous)
-        await runWindowScriptImpl('hide-embed', previous.targets, { handle: previous.handle });
+    const result = await runWindowScript('embed', plan.windowTargets, { hostHandle, ...bounds });
+    let state;
+    try {
+      state = JSON.parse(result);
+    } catch {
+      return false;
     }
-    let embedded = embeds.get(runtimeId);
-    if (embedded && embedded.hostHandle !== hostHandle) {
-      await restoreEmbeddedWindow(runtimeId);
-      embedded = null;
-    }
-    if (!embedded) {
-      const result = await runWindowScriptImpl('embed', plan.windowTargets, {
-        hostHandle,
-        ...bounds,
-      });
-      let state;
-      try {
-        state = JSON.parse(result);
-      } catch {
-        return false;
-      }
-      if (!state?.handle || !Number.isInteger(state.width) || !Number.isInteger(state.height))
-        return false;
-      embedded = { targets: plan.windowTargets, handle: state.handle, hostHandle, state };
-      embeds.set(runtimeId, embedded);
-    }
-    const shown = await runWindowScriptImpl('show-embed', embedded.targets, {
-      handle: embedded.handle,
+    if (!state?.handle || !state?.style) return false;
+    embeds.set(runtimeId, {
+      targets: plan.windowTargets,
+      handle: state.handle,
+      hostHandle,
+      state,
+      lastBounds: bounds,
     });
-    if (shown !== 'shown') return false;
-    activeRuntimeId = runtimeId;
-    return updateEmbeddedWindow(runtimeId, bounds);
+    return true;
   }
 
   async function restoreEmbeddedWindow(runtimeId) {
     const embedded = embeds.get(runtimeId);
     if (!embedded) return true;
     embeds.delete(runtimeId);
-    if (activeRuntimeId === runtimeId) activeRuntimeId = null;
     try {
       return (
-        (await runWindowScriptImpl('restore-embed', embedded.targets, {
+        (await runWindowScript('restore-embed', embedded.targets, {
           handle: embedded.handle,
           state: embedded.state,
         })) === 'restored'
       );
     } catch {
       return false;
+    }
+  }
+
+  async function parkEmbeddedWindow(runtimeId) {
+    const embedded = embeds.get(runtimeId);
+    if (!embedded) return false;
+    try {
+      return (
+        (await runWindowScript('hide-embed', embedded.targets, { handle: embedded.handle })) ===
+        'hidden'
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  async function prepareRuntimeWindows(runtimeIds, hostHandle) {
+    if (platform !== 'win32' || !Array.isArray(runtimeIds) || !/^\d{1,20}$/.test(hostHandle)) {
+      return;
+    }
+    const discovered = new Set(runtimeIds);
+    await Promise.all(
+      [...embeds.keys()]
+        .filter((runtimeId) => !discovered.has(runtimeId))
+        .map(restoreEmbeddedWindow),
+    );
+
+    for (const runtimeId of discovered) {
+      const plan = latest.get(runtimeId);
+      if (!plan?.windowTargets?.length) continue;
+      let existing = embeds.get(runtimeId);
+      if (existing && JSON.stringify(existing.targets) !== JSON.stringify(plan.windowTargets)) {
+        await restoreEmbeddedWindow(runtimeId);
+        existing = null;
+      }
+      if (existing) {
+        await parkEmbeddedWindow(runtimeId);
+        continue;
+      }
+      const result = await runWindowScript('embed-hidden', plan.windowTargets, {
+        hostHandle,
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+      });
+      let state;
+      try {
+        state = JSON.parse(result);
+      } catch {
+        continue;
+      }
+      if (state?.handle && state?.style) {
+        embeds.set(runtimeId, {
+          targets: plan.windowTargets,
+          handle: state.handle,
+          hostHandle,
+          state,
+        });
+      }
     }
   }
 
@@ -203,23 +290,13 @@ function createTakeControlService({
   async function getPreview(runtimeId) {
     const plan = planFor(runtimeId);
     const embedded = embeds.get(runtimeId);
-    if (embedded)
-      return {
-        kind: 'window',
-        handle: embedded.handle,
-        width: embedded.state.width,
-        height: embedded.state.height,
-      };
+    if (embedded) return { kind: 'window', handle: embedded.handle };
     let windowLookupError;
 
     if (platform === 'win32' && plan.windowTargets?.length > 0) {
       try {
-        const found = await findWindow(plan.windowTargets);
-        if (found) {
-          const window =
-            typeof found === 'string' ? { handle: found, width: 1280, height: 800 } : found;
-          return { kind: 'window', ...window };
-        }
+        const handle = await findWindow(plan.windowTargets);
+        if (handle) return { kind: 'window', handle };
       } catch (error) {
         windowLookupError = error;
       }
@@ -241,9 +318,12 @@ function createTakeControlService({
     remember,
     takeControl,
     getPreview,
+    sendPreviewInput,
     embedWindow,
     updateEmbeddedWindow,
     restoreEmbeddedWindow,
+    parkEmbeddedWindow,
+    prepareRuntimeWindows,
     restoreAllEmbeds,
   };
 }

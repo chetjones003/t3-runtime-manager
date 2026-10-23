@@ -4,7 +4,8 @@ const { createTakeControlService } = require('../electron/take-control-service.c
 
 const runtime = (overrides = {}) => ({
   id: 'process-100',
-  process: { pid: 100, name: 'app.exe', windowTitle: 'App window' },
+  kind: 'desktop-app',
+  process: { pid: 100, name: 'app.exe' },
   listeners: [],
   helpers: [],
   ...overrides,
@@ -88,12 +89,7 @@ function makePreviewService({ platform = 'win32', handle = null, throws = false 
 test('the preview prefers the runtime window, then its loopback page, then nothing', async () => {
   const withWindow = makePreviewService({ handle: '4242' });
   withWindow.remember([runtime({ listeners: [{ address: '::', port: 5178 }] })]);
-  assert.deepEqual(await withWindow.getPreview('process-100'), {
-    kind: 'window',
-    handle: '4242',
-    width: 1280,
-    height: 800,
-  });
+  assert.deepEqual(await withWindow.getPreview('process-100'), { kind: 'window', handle: '4242' });
 
   const pageOnly = makePreviewService({ handle: null });
   pageOnly.remember([runtime({ listeners: [{ address: '::', port: 5178 }] })]);
@@ -121,51 +117,4 @@ test('other platforms preview only loopback pages', async () => {
   const service = makePreviewService({ platform: 'darwin', handle: '1' });
   service.remember([runtime()]);
   assert.deepEqual(await service.getPreview('process-100'), { kind: 'unsupported' });
-});
-
-test('native preview embeds in its host, resizes the HWND, hides the previous window, and restores both', async () => {
-  const calls = [];
-  const service = createTakeControlService({
-    platform: 'win32',
-    openExternal: async () => {},
-    runWindowScriptImpl: async (mode, targets, input) => {
-      calls.push({ mode, targets, input });
-      if (mode === 'embed')
-        return JSON.stringify({
-          handle: targets[0].pid === 100 ? '4242' : '4343',
-          parent: '0',
-          style: 1,
-          x: 10,
-          y: 20,
-          width: 1280,
-          height: 800,
-        });
-      return {
-        'show-embed': 'shown',
-        'update-embed': 'updated',
-        'hide-embed': 'hidden',
-        'restore-embed': 'restored',
-      }[mode];
-    },
-  });
-  const second = runtime({
-    id: 'process-200',
-    process: { pid: 200, name: 'other.exe', windowTitle: 'Other window' },
-  });
-  service.remember([runtime(), second]);
-  const bounds = { x: 30, y: 40, width: 800, height: 500 };
-
-  assert.equal(await service.embedWindow('process-100', '500', bounds), true);
-  assert.equal(await service.updateEmbeddedWindow('process-100', { ...bounds, width: 900 }), true);
-  assert.equal(await service.embedWindow('process-200', '500', bounds), true);
-  assert.ok(calls.some(({ mode, input }) => mode === 'hide-embed' && input.handle === '4242'));
-  assert.deepEqual(await service.getPreview('process-200'), {
-    kind: 'window',
-    handle: '4343',
-    width: 1280,
-    height: 800,
-  });
-
-  await service.restoreAllEmbeds();
-  assert.equal(calls.filter(({ mode }) => mode === 'restore-embed').length, 2);
 });
