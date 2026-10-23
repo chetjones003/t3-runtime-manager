@@ -6,8 +6,12 @@ React + Electron shell for a multipurpose developer app manager. The Workspace c
 
 Install dependencies with `npm install`, then start the desktop app with `npm run dev`.
 
-## Prototype boundary
+## Current scope
 
-This is a UI prototype. T3 thread synchronization, remembered checkout settings, process discovery, build and launch commands, and real application embedding are not connected. Actions use sample state so the interaction flow can be reviewed.
+The cockpit still uses sample T3 thread and worktree records. On Windows, **Refresh runtimes** performs a read-only process and TCP listener scan and shows runtime groups with direct executable-path or command-line evidence for those worktrees. Raw command lines stay in Electron's main process and are omitted from the response. The latest scan remains in memory for the current app session.
 
-The app keeps thread activity separate from runtime state. The sample rebuild confirmation stops only the selected runtime, and Build & Run relaunches it after the simulated build succeeds.
+macOS and Linux collectors, unmatched-candidate presentation, T3 synchronization, remembered workspace settings, process control, builds, launches, and window embedding are not connected yet.
+
+## Verify runtime discovery
+
+Run `npm test` for fixture-based OS-neutral scan tests. On Windows, run `npm run smoke:windows` to verify the real process/listener collector against a short-lived probe process.

@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:127.0.0.1:5178 && node scripts/run-electron.cjs --dev\"",
     "build": "vite build",
+    "test": "node --test",
+    "smoke:windows": "node scripts/smoke-windows-runtime-discovery.cjs",
     "desktop": "node scripts/run-electron.cjs"
   },
   "dependencies": {
