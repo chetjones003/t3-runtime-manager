@@ -44,3 +44,7 @@ jobs:
       - name: Smoke-check macOS runtime discovery
         if: runner.os == 'macOS'
         run: npm run smoke:macos
+
+      - name: Smoke-check Linux runtime discovery
+        if: runner.os == 'Linux'
+        run: npm run smoke:linux
