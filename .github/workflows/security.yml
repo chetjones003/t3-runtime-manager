@@ -1,8 +1,7 @@
 name: Security
 
+# Runs on pull requests, plus a weekly scan of main to catch newly published advisories.
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   schedule:
