@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { startRuntimePreview } from './runtime-preview.mjs';
 import Settings from './Settings.jsx';
-import { applySettings, loadSettings, normalizeSettings, saveSettings } from './settings.js';
+import {
+  applySettings,
+  loadSettings,
+  normalizeSettings,
+  organizeThreads,
+  saveSettings,
+} from './settings.mjs';
 import appIcon from '../assets/icon.png';
-
-const THREAD_POLL_MS = 5000;
 
 const threadStates = {
   working: { label: 'Working', glyph: '●' },
@@ -454,7 +458,7 @@ function relativeTime(iso) {
   return Math.round(minutes / (60 * 24)) + 'd';
 }
 
-function ThreadRow({ thread, selected, onSelect, onOpen, canOpen }) {
+function ThreadRow({ thread, selected, onSelect, onOpen, canOpen, showBranch }) {
   const state = threadStates[thread.state] ?? threadStates.idle;
   return (
     <div className={'thread-row' + (selected ? ' selected' : '')}>
@@ -493,7 +497,7 @@ function ThreadRow({ thread, selected, onSelect, onOpen, canOpen }) {
           </svg>
         </button>
       </div>
-      <span className="thread-branch">⎇ {thread.branch || 'No branch'}</span>
+      {showBranch && <span className="thread-branch">⎇ {thread.branch || 'No branch'}</span>}
     </div>
   );
 }
@@ -689,8 +693,11 @@ export default function App() {
   const [updateOpen, setUpdateOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState(loadSettings);
+  const [query, setQuery] = useState('');
   const threadsRef = useRef([]);
   const scannedOnce = useRef(false);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   useEffect(() => {
     if (window.threadAppManager.platform !== 'win32') return undefined;
@@ -704,16 +711,17 @@ export default function App() {
   }, []);
 
   const threads = t3Data?.threads ?? [];
-  const threadGroups = Array.from(
-    threads.reduce((groups, thread) => {
-      const project = thread.projectTitle || 'No project';
-      if (!groups.has(project)) groups.set(project, []);
-      groups.get(project).push(thread);
-      return groups;
-    }, new Map()),
-  );
+  const threadGroups = organizeThreads(threads, settings, query);
+  const visibleThreads = threadGroups.flatMap(([, list]) => list);
+  const projectNames = Array.from(
+    new Set([
+      ...threads.map((thread) => thread.projectTitle || 'No project'),
+      ...settings.hiddenProjects,
+    ]),
+  ).sort((x, y) => x.localeCompare(y));
   threadsRef.current = threads;
-  const selected = threads.find((thread) => thread.id === selectedId) ?? threads[0] ?? null;
+  const selected =
+    visibleThreads.find((thread) => thread.id === selectedId) ?? visibleThreads[0] ?? null;
 
   const refreshRuntimes = useCallback(async () => {
     setScanning(true);
@@ -738,7 +746,7 @@ export default function App() {
         if (!scannedOnce.current) {
           scannedOnce.current = true;
           threadsRef.current = result.threads;
-          refreshRuntimes();
+          if (settingsRef.current.autoScan) refreshRuntimes();
         }
       }
     },
@@ -761,12 +769,12 @@ export default function App() {
       }
     }
     poll();
-    const timer = setInterval(poll, THREAD_POLL_MS);
+    const timer = setInterval(poll, settings.refreshSeconds * 1000);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [applyResult]);
+  }, [applyResult, settings.refreshSeconds]);
 
   async function connect(code) {
     setConnecting(true);
@@ -932,36 +940,65 @@ export default function App() {
             </div>
           )}
 
-          {selected && (
+          {threads.length > 0 && (
             <section className="work-area">
               <div className="thread-sidebar">
                 <div
                   className="sidebar-heading"
                   title="Your active T3 threads that have a worktree on this computer. Runtime discovery reads process and TCP listener metadata without changing running apps."
                 >
-                  Active threads <span className="count-pill">{threads.length} in T3</span>
+                  Active threads{' '}
+                  <span className="count-pill">
+                    {visibleThreads.length === threads.length
+                      ? threads.length + ' in T3'
+                      : visibleThreads.length + ' of ' + threads.length}
+                  </span>
+                </div>
+                <div className="thread-search">
+                  <input
+                    type="search"
+                    aria-label="Search threads"
+                    placeholder={
+                      settings.searchScope === 'title'
+                        ? 'Search thread titles'
+                        : 'Search threads, branches, projects'
+                    }
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    spellCheck="false"
+                  />
                 </div>
                 <div
                   className={'thread-list' + (stale ? ' stale' : '')}
                   role="list"
                   aria-label="Active threads"
                 >
+                  {visibleThreads.length === 0 && (
+                    <div className="thread-list-empty">
+                      {query
+                        ? 'No threads match your search.'
+                        : 'All projects are hidden in Settings.'}
+                    </div>
+                  )}
                   {threadGroups.map(([project, projectThreads]) => (
-                    <section className="thread-project-group" key={project}>
-                      <div className="thread-project-heading">
-                        <span className="project-badge" aria-hidden="true">
-                          {project.slice(0, 2).toUpperCase()}
-                        </span>
-                        <span>{project}</span>
-                        <span className="thread-project-count">{projectThreads.length}</span>
-                      </div>
+                    <section className="thread-project-group" key={project ?? 'all'}>
+                      {project !== null && (
+                        <div className="thread-project-heading">
+                          <span className="project-badge" aria-hidden="true">
+                            {project.slice(0, 2).toUpperCase()}
+                          </span>
+                          <span>{project}</span>
+                          <span className="thread-project-count">{projectThreads.length}</span>
+                        </div>
+                      )}
                       {projectThreads.map((thread) => (
                         <ThreadRow
                           thread={thread}
-                          selected={selected.id === thread.id}
+                          selected={selected?.id === thread.id}
                           onSelect={setSelectedId}
                           onOpen={openInT3}
                           canOpen={!stale}
+                          showBranch={settings.showBranch}
                           key={thread.id}
                         />
                       ))}
@@ -979,8 +1016,8 @@ export default function App() {
                 <div className="stage-toolbar">
                   <div>
                     <div className="eyebrow">RUNTIMES</div>
-                    <div className="stage-title" title={selected.title}>
-                      {selected.title}
+                    <div className="stage-title" title={selected?.title}>
+                      {selected?.title ?? 'No thread selected'}
                     </div>
                   </div>
                   <div className="stage-toolbar-spacer" />
@@ -1023,7 +1060,7 @@ export default function App() {
                       <p>Only processes with direct evidence for this worktree appear here.</p>
                     </div>
                   )}
-                  {!scanning && scan && worktreeRuntimes.length === 0 && (
+                  {!scanning && scan && selected && worktreeRuntimes.length === 0 && (
                     <div className="scan-message">
                       <div className="empty-icon">⌕</div>
                       <strong>No runtimes found for this thread</strong>
@@ -1067,13 +1104,15 @@ export default function App() {
             onConnect={connect}
             onDisconnect={disconnect}
             update={update}
+            projects={projectNames}
             onClose={() => setSettingsOpen(false)}
           />
         )}
       </div>
 
       <footer className="bottom-note">
-        <span className="status-light" /> Threads refresh from T3 every 5 seconds
+        <span className="status-light" /> Threads refresh from T3 every {settings.refreshSeconds}{' '}
+        seconds
         <span className="footer-separator">·</span> Take Control brings the selected app window
         forward; build, start and stop are not connected
         <span className="footer-spacer" />

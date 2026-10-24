@@ -7,6 +7,7 @@ Every merge to `main` publishes the next patch version. Each pull request adds i
 - The thread list and runtime panels now fill the whole window instead of floating in the middle of it.
 - Clicking anywhere on a thread selects it, not just the title line.
 - New settings window, opened with the cog next to the update button. Choose from ten themes (Dark, Light, Catppuccin Mocha and Latte, Tokyo Night and Day, Darcula and Darcula Light, One Dark and One Light), and pick your font and text size.
+- Settings has a General section: group threads by project, order projects and threads, hide projects, choose what search matches, show or hide branches, set how often threads refresh, and turn the automatic runtime scan on start on or off. There is also a search box above the thread list.
 - Settings also shows your T3 connection details, and lets you replace the connection with a new pairing code or remove it.
 - The logo in the top-left corner now matches the app icon.
 
