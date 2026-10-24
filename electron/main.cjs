@@ -17,6 +17,8 @@ const { groupRuntimeApps } = require('../src/thread-apps.cjs');
 const { createT3Service } = require('./t3-service.cjs');
 const { createTakeControlService } = require('./take-control-service.cjs');
 const { registerRuntimePreviewIpc } = require('./runtime-preview-ipc.cjs');
+const { createUpdateService } = require('./update-service.cjs');
+const { spawn } = require('node:child_process');
 
 let mainWindow;
 
@@ -205,6 +207,42 @@ ipcMain.handle('t3:open-thread', (event, threadId) => {
   return t3Service.openThread(threadId);
 });
 
+const updates = createUpdateService({
+  currentVersion: app.getVersion(),
+  // Development builds can see new releases but never run the installer.
+  canInstall: app.isPackaged,
+  spawn,
+  quit: () => app.quit(),
+  onState: (state) => mainWindow?.webContents.send('update:state', state),
+});
+
+ipcMain.handle('update:state', (event) => {
+  assertTrustedSender(event, 'Updates');
+  return updates.getState();
+});
+
+ipcMain.handle('update:check', (event) => {
+  assertTrustedSender(event, 'Updates');
+  return updates.check();
+});
+
+ipcMain.handle('update:install', (event) => {
+  assertTrustedSender(event, 'Updates');
+  return updates.install();
+});
+
+ipcMain.handle('update:cancel', (event) => {
+  assertTrustedSender(event, 'Updates');
+  updates.cancel();
+  return updates.getState();
+});
+
+ipcMain.handle('update:open-release', (event) => {
+  assertTrustedSender(event, 'Updates');
+  const url = updates.getState().latest?.url;
+  if (url?.startsWith('https://github.com/')) shell.openExternal(url);
+});
+
 function createWindow() {
   const workArea = screen.getPrimaryDisplay().workAreaSize;
   const width = Math.min(1400, Math.max(920, workArea.width - 40));
@@ -279,6 +317,7 @@ app.whenReady().then(() => {
     { useSystemPicker: false },
   );
   createWindow();
+  updates.start();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

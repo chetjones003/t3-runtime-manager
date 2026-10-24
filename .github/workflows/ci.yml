@@ -31,6 +31,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check release notes
+        if: runner.os == 'Linux'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          git fetch --force --tags origin
+          node scripts/release-notes.cjs check
+
       - name: Run tests
         run: npm test
 

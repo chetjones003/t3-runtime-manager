@@ -21,6 +21,16 @@ contextBridge.exposeInMainWorld(
     getT3Threads: () => ipcRenderer.invoke('t3:threads'),
     connectT3: (code) => ipcRenderer.invoke('t3:connect', code),
     openT3Thread: (threadId) => ipcRenderer.invoke('t3:open-thread', threadId),
+    getUpdateState: () => ipcRenderer.invoke('update:state'),
+    checkForUpdates: () => ipcRenderer.invoke('update:check'),
+    installUpdate: () => ipcRenderer.invoke('update:install'),
+    cancelUpdate: () => ipcRenderer.invoke('update:cancel'),
+    openReleasePage: () => ipcRenderer.invoke('update:open-release'),
+    onUpdateState: (callback) => {
+      const listener = (_event, state) => callback(state);
+      ipcRenderer.on('update:state', listener);
+      return () => ipcRenderer.removeListener('update:state', listener);
+    },
     platform: process.platform,
     controlWindow: (action) => ipcRenderer.invoke('window:control', action),
     onWindowState: (callback) => {

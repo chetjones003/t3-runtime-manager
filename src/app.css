@@ -1248,3 +1248,94 @@ button:focus-visible {
   font-size: 10px;
   white-space: pre-wrap;
 }
+.footer-spacer {
+  flex: 1;
+}
+.update-button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  border-color: transparent;
+  background: transparent;
+  color: #6f7a8c;
+}
+.update-button:hover {
+  background: #1a202a;
+  color: #aeb8c9;
+}
+.update-button.update-available {
+  background: #2c3544;
+  border-color: #3b4657;
+  color: #f2f5fa;
+  box-shadow: 0 0 0 3px #cbd6ff1f;
+}
+.update-button.update-available:hover {
+  background: #36404f;
+}
+.update-modal {
+  width: min(520px, 100%);
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+}
+.update-versions {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.release-notes {
+  overflow-y: auto;
+  min-height: 0;
+  max-height: 320px;
+  background: #11161e;
+  border: 1px solid #2a3340;
+  border-radius: 9px;
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #b2bdcc;
+  scrollbar-width: thin;
+  scrollbar-color: #3a4555 #11161e;
+}
+.release-notes h3 {
+  font-size: 12px;
+  color: #e4e9f2;
+  margin: 6px 0 4px;
+}
+.release-notes li {
+  margin-left: 16px;
+  overflow-wrap: anywhere;
+}
+.release-notes p {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+.release-notes-empty,
+.update-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+.update-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  font-size: 11px;
+  color: #b2bdcc;
+}
+.update-progress-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: #11161e;
+  border: 1px solid #2a3340;
+  overflow: hidden;
+}
+.update-progress-bar {
+  height: 100%;
+  background: var(--lav);
+  transition: width 0.2s;
+}

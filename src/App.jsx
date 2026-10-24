@@ -495,6 +495,159 @@ function ThreadRow({ thread, selected, onSelect, onOpen, canOpen }) {
   );
 }
 
+function UpdateIcon() {
+  return (
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+      <circle cx="10" cy="10" r="7.25" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M10 13.5v-7M6.9 9.4 10 6.3l3.1 3.1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// Strips the small amount of Markdown GitHub's generated release notes use.
+function plainMarkdown(text) {
+  return text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1');
+}
+
+function ReleaseNotes({ notes }) {
+  const lines = notes
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return <p className="release-notes-empty">No release notes.</p>;
+  return (
+    <div className="release-notes">
+      {lines.map((line, index) => {
+        const heading = /^#{1,6}\s+(.*)$/.exec(line);
+        if (heading) return <h3 key={index}>{plainMarkdown(heading[1])}</h3>;
+        const bullet = /^[-*]\s+(.*)$/.exec(line);
+        if (bullet) return <li key={index}>{plainMarkdown(bullet[1])}</li>;
+        return <p key={index}>{plainMarkdown(line)}</p>;
+      })}
+    </div>
+  );
+}
+
+function UpdateDialog({ update, onClose }) {
+  const available = update.status === 'available';
+  const busy = update.status === 'downloading' || update.status === 'installing';
+  const started = useRef(false);
+
+  // Opening the dialog for an available update starts the download right away.
+  useEffect(() => {
+    if (available && update.canInstall && !update.error && !started.current) {
+      started.current = true;
+      window.threadAppManager.installUpdate();
+    }
+  }, [available, update.canInstall, update.error]);
+
+  const percent = Math.round((update.progress ?? 0) * 100);
+  return (
+    <div className="modal-shade" role="presentation">
+      <div className="modal update-modal" role="dialog" aria-labelledby="update-title">
+        <div className="eyebrow">UPDATE</div>
+        {update.latest ? (
+          <>
+            <h2 id="update-title">Update to v{update.latest.version}</h2>
+            <div className="update-versions">
+              You have v{update.currentVersion}
+              {update.latest.publishedAt &&
+                ` · released ${new Date(update.latest.publishedAt).toLocaleDateString()}`}
+            </div>
+            <ReleaseNotes notes={update.latest.notes} />
+          </>
+        ) : (
+          <>
+            <h2 id="update-title">You're up to date</h2>
+            <div className="update-versions">
+              T3 Runtime Manager v{update.currentVersion}
+              {update.checking && ' · checking…'}
+            </div>
+          </>
+        )}
+
+        {update.status === 'downloading' && (
+          <div className="update-progress" role="status">
+            <div className="update-progress-track">
+              <div className="update-progress-bar" style={{ width: percent + '%' }} />
+            </div>
+            <span>Downloading… {percent}%</span>
+          </div>
+        )}
+        {update.status === 'installing' && (
+          <div className="update-progress" role="status">
+            <span className="spinner" /> Closing to install. The app reopens when it finishes.
+          </div>
+        )}
+        {available && !update.canInstall && (
+          <p className="update-note">
+            Automatic install is only available in the installed Windows app. Download this release
+            from GitHub instead.
+          </p>
+        )}
+        {update.error && (
+          <div className="connect-error" role="alert">
+            {update.error}
+          </div>
+        )}
+
+        <div className="modal-actions">
+          {busy ? (
+            <button
+              className="button-secondary"
+              onClick={() => window.threadAppManager.cancelUpdate()}
+              disabled={update.status === 'installing'}
+            >
+              Cancel
+            </button>
+          ) : (
+            <>
+              <button className="button-secondary" onClick={onClose}>
+                Close
+              </button>
+              {!update.latest && (
+                <button
+                  className="button-primary"
+                  onClick={() => window.threadAppManager.checkForUpdates()}
+                  disabled={update.checking}
+                >
+                  Check again
+                </button>
+              )}
+              {available && update.canInstall && (
+                <button
+                  className="button-primary"
+                  onClick={() => window.threadAppManager.installUpdate()}
+                >
+                  {update.error ? 'Try again' : 'Update and restart'}
+                </button>
+              )}
+              {available && !update.canInstall && (
+                <button
+                  className="button-primary"
+                  onClick={() => window.threadAppManager.openReleasePage()}
+                >
+                  Open release page
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const connectionBadge = {
   ok: { label: 'T3 connected', tone: 'ok' },
   'needs-connect': { label: 'T3 not connected', tone: 'warn' },
@@ -513,6 +666,8 @@ export default function App() {
   const [openError, setOpenError] = useState('');
   const [previewId, setPreviewId] = useState(null);
   const [maximized, setMaximized] = useState(false);
+  const [update, setUpdate] = useState(null);
+  const [updateOpen, setUpdateOpen] = useState(false);
   const threadsRef = useRef([]);
   const scannedOnce = useRef(false);
 
@@ -520,6 +675,11 @@ export default function App() {
     if (window.threadAppManager.platform !== 'win32') return undefined;
     window.threadAppManager.controlWindow('state').then(setMaximized);
     return window.threadAppManager.onWindowState(setMaximized);
+  }, []);
+
+  useEffect(() => {
+    window.threadAppManager.getUpdateState().then(setUpdate);
+    return window.threadAppManager.onUpdateState(setUpdate);
   }, []);
 
   const threads = t3Data?.threads ?? [];
@@ -863,7 +1023,27 @@ export default function App() {
         <span className="status-light" /> Threads refresh from T3 every 5 seconds
         <span className="footer-separator">·</span> Take Control brings the selected app window
         forward; build, start and stop are not connected
+        <span className="footer-spacer" />
+        {update && (
+          <button
+            className={'update-button' + (update.latest ? ' update-available' : '')}
+            onClick={() => setUpdateOpen(true)}
+            title={
+              update.latest
+                ? `Update to v${update.latest.version}`
+                : `Up to date · v${update.currentVersion}`
+            }
+            aria-label={
+              update.latest ? `Update available: v${update.latest.version}` : 'Check for updates'
+            }
+          >
+            <UpdateIcon />
+          </button>
+        )}
       </footer>
+      {updateOpen && update && (
+        <UpdateDialog update={update} onClose={() => setUpdateOpen(false)} />
+      )}
     </div>
   );
 }

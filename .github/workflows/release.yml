@@ -134,6 +134,17 @@ jobs:
     needs: [version, package]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - name: Read this version's release notes
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          if ! node scripts/release-notes.cjs extract "$TAG" > "$RUNNER_TEMP/release-notes.md"; then
+            echo "::warning::RELEASE_NOTES.md has no section for $TAG; using GitHub's generated notes."
+            rm -f "$RUNNER_TEMP/release-notes.md"
+          fi
       - uses: actions/download-artifact@v7
         with:
           pattern: installers-*
@@ -150,8 +161,18 @@ jobs:
             exit 1
           fi
 
+          NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+          if [[ -f "$NOTES_FILE" ]]; then
+            NOTES_ARGS=(--notes-file "$NOTES_FILE")
+          else
+            NOTES_ARGS=(--generate-notes)
+          fi
+
           if gh release view "$TAG" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release upload "$TAG" "${ASSETS[@]}" --repo "${GITHUB_REPOSITORY}" --clobber
+            if [[ -f "$NOTES_FILE" ]]; then
+              gh release edit "$TAG" --repo "${GITHUB_REPOSITORY}" --notes-file "$NOTES_FILE"
+            fi
           else
-            gh release create "$TAG" "${ASSETS[@]}" --repo "${GITHUB_REPOSITORY}" --title "T3 Runtime Manager $TAG" --generate-notes
+            gh release create "$TAG" "${ASSETS[@]}" --repo "${GITHUB_REPOSITORY}" --title "T3 Runtime Manager $TAG" "${NOTES_ARGS[@]}"
           fi
