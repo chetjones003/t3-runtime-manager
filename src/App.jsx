@@ -984,7 +984,13 @@ export default function App() {
                   </div>
                 </>
               ) : (
-                <div className="sidebar-fill" />
+                <div className="sidebar-fill">
+                  <div className="thread-list-empty">
+                    {connection.state === 'ok'
+                      ? 'No active threads yet.'
+                      : 'Connect to T3 to see your active threads here.'}
+                  </div>
+                </div>
               )}
               {openError && (
                 <div className="connect-error" role="alert">
