@@ -108,7 +108,25 @@ function createT3Service({
     await openExternal(threadUrl(server.origin, server.environmentId, threadId));
   }
 
-  return { getThreads, connect, openThread };
+  // Connection details for the settings window. The access token itself never leaves this process.
+  async function getConnection() {
+    const server = readServer();
+    const current = await loadToken();
+    return {
+      origin: server?.origin ?? null,
+      environmentId: server?.environmentId ?? null,
+      paired: Boolean(current),
+      expiresAt: current ? current.expiresAt : null,
+    };
+  }
+
+  async function disconnect() {
+    await setToken(null);
+    knownThreadIds = new Set();
+    return getConnection();
+  }
+
+  return { getThreads, connect, openThread, getConnection, disconnect };
 }
 
 module.exports = { createT3Service };

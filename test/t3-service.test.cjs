@@ -130,3 +130,24 @@ test('only threads from the latest listing can be opened, using a service-built 
   assert.deepEqual(opened, ['http://127.0.0.1:3773/env-1/t-working']);
   await assert.rejects(service.openThread('javascript:alert(1)'), /not available/);
 });
+
+test('connection details never include the token, and disconnecting clears it', async () => {
+  const store = memoryStore(liveToken());
+  const service = createT3Service({
+    t3Home: makeHome(),
+    tokenStore: store,
+    fetchImpl: serverFetch(),
+    pathExists,
+  });
+  const details = await service.getConnection();
+  assert.equal(details.origin, 'http://127.0.0.1:3773');
+  assert.equal(details.environmentId, 'env-1');
+  assert.equal(details.paired, true);
+  assert.ok(details.expiresAt > Date.now());
+  assert.ok(!JSON.stringify(details).includes('tok'));
+
+  const after = await service.disconnect();
+  assert.equal(after.paired, false);
+  assert.equal(store.peek(), null);
+  assert.deepEqual(await service.getThreads(), { state: 'needs-connect' });
+});

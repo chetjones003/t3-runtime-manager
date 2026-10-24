@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld(
     takeControl: (runtimeId) => ipcRenderer.invoke('runtime:take-control', runtimeId),
     getT3Threads: () => ipcRenderer.invoke('t3:threads'),
     connectT3: (code) => ipcRenderer.invoke('t3:connect', code),
+    getT3Connection: () => ipcRenderer.invoke('t3:connection'),
+    disconnectT3: () => ipcRenderer.invoke('t3:disconnect'),
     openT3Thread: (threadId) => ipcRenderer.invoke('t3:open-thread', threadId),
     getUpdateState: () => ipcRenderer.invoke('update:state'),
     checkForUpdates: () => ipcRenderer.invoke('update:check'),
