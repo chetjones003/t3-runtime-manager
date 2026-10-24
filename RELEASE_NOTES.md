@@ -2,6 +2,10 @@
 
 Every merge to `main` publishes the next patch version. Each pull request adds its own section at the top. The app's update window shows the section for the version it installs.
 
+## v0.1.10
+
+- When T3 is not connected, the connection form is now centered, and the empty thread list explains what to do.
+
 ## v0.1.9
 
 - The thread list and runtime panels now fill the whole window instead of floating in the middle of it.
