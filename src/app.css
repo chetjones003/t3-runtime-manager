@@ -354,8 +354,8 @@ select {
   border-bottom: 1px solid var(--red-line);
 }
 .connect-panel {
-  margin: 18px;
-  max-width: 560px;
+  margin: auto;
+  width: min(560px, calc(100% - 36px));
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: 13px;
@@ -858,6 +858,7 @@ select {
 /* Sidebar footer */
 .sidebar-fill {
   flex: 1;
+  padding: 8px;
 }
 .sidebar-footer {
   flex: 0 0 auto;
