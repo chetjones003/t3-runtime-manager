@@ -201,6 +201,16 @@ ipcMain.handle('t3:connect', (event, code) => {
   return t3Service.connect(code);
 });
 
+ipcMain.handle('t3:connection', (event) => {
+  assertTrustedSender(event, 'T3 connection');
+  return t3Service.getConnection();
+});
+
+ipcMain.handle('t3:disconnect', (event) => {
+  assertTrustedSender(event, 'T3 connection');
+  return t3Service.disconnect();
+});
+
 ipcMain.handle('t3:open-thread', (event, threadId) => {
   assertTrustedSender(event, 'T3 thread links');
   if (typeof threadId !== 'string' || threadId.length > 200) throw new Error('Invalid thread.');

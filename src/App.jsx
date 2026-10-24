@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { startRuntimePreview } from './runtime-preview.mjs';
+import Settings from './Settings.jsx';
+import { applySettings, loadSettings, normalizeSettings, saveSettings } from './settings.js';
+import appIcon from '../assets/icon.png';
 
 const THREAD_POLL_MS = 5000;
 
@@ -511,6 +514,22 @@ function UpdateIcon() {
   );
 }
 
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+      <circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M10 2.4v2M10 15.6v2M2.4 10h2M15.6 10h2M4.6 4.6l1.4 1.4M14 14l1.4 1.4M15.4 4.6 14 6M6 14l-1.4 1.4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <circle cx="10" cy="10" r="5.6" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
 // Strips the small amount of Markdown GitHub's generated release notes use.
 function plainMarkdown(text) {
   return text
@@ -668,6 +687,8 @@ export default function App() {
   const [maximized, setMaximized] = useState(false);
   const [update, setUpdate] = useState(null);
   const [updateOpen, setUpdateOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState(loadSettings);
   const threadsRef = useRef([]);
   const scannedOnce = useRef(false);
 
@@ -754,12 +775,35 @@ export default function App() {
       const result = await window.threadAppManager.connectT3(code);
       if (result.error) setConnectError(result.error);
       applyResult(result);
+      return result;
     } catch {
       setConnectError('Could not connect to T3. Try again.');
+      return { state: 'unreachable' };
     } finally {
       setConnecting(false);
     }
   }
+
+  async function disconnect() {
+    await window.threadAppManager.disconnectT3();
+    setT3Data(null);
+    setSelectedId(null);
+    setScan(null);
+    scannedOnce.current = false;
+    setConnection({ state: 'needs-connect' });
+  }
+
+  function changeSettings(patch) {
+    setSettings((previous) => {
+      const next = normalizeSettings({ ...previous, ...patch });
+      saveSettings(next);
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    applySettings(settings);
+  }, [settings]);
 
   async function openInT3(threadId) {
     setOpenError('');
@@ -799,7 +843,9 @@ export default function App() {
     <div className="window-shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">TM</span>
+          <span className="brand-mark">
+            <img src={appIcon} alt="" draggable="false" />
+          </span>
           <span>T3 Runtime Manager</span>
         </div>
         <div className="topbar-spacer" />
@@ -853,193 +899,211 @@ export default function App() {
         )}
       </header>
 
-      <main className="cockpit">
-        <section className="workspace-heading">
-          <div>
-            <div className="eyebrow">WORKSPACE</div>
-            <h1>
-              Active threads {t3Data && <span className="count-pill">{threads.length} in T3</span>}
-            </h1>
-            <p>
-              Your active T3 threads that have a worktree on this computer. Runtime discovery reads
-              process and TCP listener metadata without changing running apps.
-            </p>
-          </div>
-          <button
-            className="button-secondary refresh-button"
-            onClick={refreshRuntimes}
-            disabled={scanning || threads.length === 0}
-          >
-            {scanning ? (
-              <>
-                <span className="spinner" /> Scanning…
-              </>
-            ) : (
-              <>
-                ↻ <span>Refresh runtimes</span>
-              </>
-            )}
-          </button>
-        </section>
+      <div className="content">
+        <main className="cockpit">
+          {connection.state === 'unreachable' && (
+            <div className="connection-banner connection-banner-bad" role="status">
+              T3 is unreachable. Start T3 on this computer
+              {stale ? ' — showing the last threads it reported while retrying.' : '.'}
+            </div>
+          )}
 
-        {connection.state === 'unreachable' && (
-          <div className="connection-banner connection-banner-bad" role="status">
-            T3 is unreachable. Start T3 on this computer
-            {stale ? ' — showing the last threads it reported while retrying.' : '.'}
-          </div>
-        )}
+          {connection.state === 'needs-connect' && (
+            <ConnectPanel
+              connection={connection}
+              connectError={connectError}
+              connecting={connecting}
+              onConnect={connect}
+            />
+          )}
 
-        {connection.state === 'needs-connect' && (
-          <ConnectPanel
-            connection={connection}
-            connectError={connectError}
-            connecting={connecting}
-            onConnect={connect}
-          />
-        )}
+          {connection.state === 'loading' && (
+            <div className="scan-message">
+              <span className="spinner large-spinner" />
+              <strong>Reading threads from T3…</strong>
+            </div>
+          )}
 
-        {connection.state === 'loading' && (
-          <div className="scan-message">
-            <span className="spinner large-spinner" />
-            <strong>Reading threads from T3…</strong>
-          </div>
-        )}
+          {t3Data && threads.length === 0 && (
+            <div className="scan-message">
+              <div className="empty-icon">⌕</div>
+              <strong>No active threads with a worktree on this computer</strong>
+              <p>Active threads appear here once T3 creates a worktree for them.</p>
+            </div>
+          )}
 
-        {t3Data && threads.length === 0 && (
-          <div className="scan-message">
-            <div className="empty-icon">⌕</div>
-            <strong>No active threads with a worktree on this computer</strong>
-            <p>Active threads appear here once T3 creates a worktree for them.</p>
-          </div>
-        )}
+          {selected && (
+            <section className="work-area">
+              <div className="thread-sidebar">
+                <div
+                  className="sidebar-heading"
+                  title="Your active T3 threads that have a worktree on this computer. Runtime discovery reads process and TCP listener metadata without changing running apps."
+                >
+                  Active threads <span className="count-pill">{threads.length} in T3</span>
+                </div>
+                <div
+                  className={'thread-list' + (stale ? ' stale' : '')}
+                  role="list"
+                  aria-label="Active threads"
+                >
+                  {threadGroups.map(([project, projectThreads]) => (
+                    <section className="thread-project-group" key={project}>
+                      <div className="thread-project-heading">
+                        <span className="project-badge" aria-hidden="true">
+                          {project.slice(0, 2).toUpperCase()}
+                        </span>
+                        <span>{project}</span>
+                        <span className="thread-project-count">{projectThreads.length}</span>
+                      </div>
+                      {projectThreads.map((thread) => (
+                        <ThreadRow
+                          thread={thread}
+                          selected={selected.id === thread.id}
+                          onSelect={setSelectedId}
+                          onOpen={openInT3}
+                          canOpen={!stale}
+                          key={thread.id}
+                        />
+                      ))}
+                    </section>
+                  ))}
+                </div>
+                {openError && (
+                  <div className="connect-error" role="alert">
+                    {openError}
+                  </div>
+                )}
+              </div>
 
-        {selected && (
-          <section className="work-area">
-            <div className="thread-sidebar">
-              <div
-                className={'thread-list' + (stale ? ' stale' : '')}
-                role="list"
-                aria-label="Active threads"
-              >
-                {threadGroups.map(([project, projectThreads]) => (
-                  <section className="thread-project-group" key={project}>
-                    <div className="thread-project-heading">
-                      <span className="project-badge" aria-hidden="true">
-                        {project.slice(0, 2).toUpperCase()}
-                      </span>
-                      <span>{project}</span>
-                      <span className="thread-project-count">{projectThreads.length}</span>
+              <section className="app-stage runtime-stage" aria-label="Runtimes for this thread">
+                <div className="stage-toolbar">
+                  <div>
+                    <div className="eyebrow">RUNTIMES</div>
+                    <div className="stage-title" title={selected.title}>
+                      {selected.title}
                     </div>
-                    {projectThreads.map((thread) => (
-                      <ThreadRow
-                        thread={thread}
-                        selected={selected.id === thread.id}
-                        onSelect={setSelectedId}
-                        onOpen={openInT3}
-                        canOpen={!stale}
-                        key={thread.id}
+                  </div>
+                  <div className="stage-toolbar-spacer" />
+                  <span className={'surface-state scan-state-' + scanState}>
+                    {scanStateLabel}
+                    {scan && !scanning && ` · ${new Date(scan.scannedAt).toLocaleTimeString()}`}
+                  </span>
+                  <button
+                    className="button-secondary refresh-button"
+                    onClick={refreshRuntimes}
+                    disabled={scanning || threads.length === 0}
+                  >
+                    {scanning ? (
+                      <>
+                        <span className="spinner" /> Scanning…
+                      </>
+                    ) : (
+                      <>
+                        ↻ <span>Refresh runtimes</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="runtime-results">
+                  {scanning && (
+                    <div className="scan-message">
+                      <span className="spinner large-spinner" />
+                      <strong>Scanning local processes and TCP listeners…</strong>
+                    </div>
+                  )}
+                  {!scanning && scanError && (
+                    <div className="scan-message scan-error" role="alert">
+                      {scanError}
+                    </div>
+                  )}
+                  {!scanning && !scanError && !scan && (
+                    <div className="scan-message">
+                      <div className="empty-icon">⌕</div>
+                      <strong>Refresh to discover this thread's runtimes</strong>
+                      <p>Only processes with direct evidence for this worktree appear here.</p>
+                    </div>
+                  )}
+                  {!scanning && scan && worktreeRuntimes.length === 0 && (
+                    <div className="scan-message">
+                      <div className="empty-icon">⌕</div>
+                      <strong>No runtimes found for this thread</strong>
+                      <p>
+                        No process executable path or command line referenced this worktree in the
+                        latest scan.
+                      </p>
+                    </div>
+                  )}
+                  {!scanning &&
+                    worktreeRuntimes.map((runtime) => (
+                      <RuntimeGroup
+                        runtime={runtime}
+                        selected={previewed?.id === runtime.id}
+                        selectable={worktreeRuntimes.length > 1}
+                        onSelect={setPreviewId}
+                        onTakeControl={refreshRuntimes}
+                        key={runtime.id}
                       />
                     ))}
-                  </section>
-                ))}
-              </div>
-              {openError && (
-                <div className="connect-error" role="alert">
-                  {openError}
+                  {!scanning && previewed && <RuntimePreview runtime={previewed} />}
                 </div>
-              )}
-            </div>
-
-            <section className="app-stage runtime-stage" aria-label="Runtimes for this thread">
-              <div className="stage-toolbar">
-                <div>
-                  <div className="eyebrow">RUNTIMES</div>
-                  <div className="stage-title" title={selected.title}>
-                    {selected.title}
-                  </div>
-                </div>
-                <div className="stage-toolbar-spacer" />
-                <span className={'surface-state scan-state-' + scanState}>
-                  {scanStateLabel}
-                  {scan && !scanning && ` · ${new Date(scan.scannedAt).toLocaleTimeString()}`}
-                </span>
-              </div>
-              <div className="runtime-results">
-                {scanning && (
-                  <div className="scan-message">
-                    <span className="spinner large-spinner" />
-                    <strong>Scanning local processes and TCP listeners…</strong>
+                {scan?.limitations.length > 0 && (
+                  <div className="scan-limitations">
+                    <strong>Partial scan · other results are still shown</strong>
+                    {scan.limitations.map((limitation, index) => (
+                      <span key={index}>{limitation}</span>
+                    ))}
                   </div>
                 )}
-                {!scanning && scanError && (
-                  <div className="scan-message scan-error" role="alert">
-                    {scanError}
-                  </div>
-                )}
-                {!scanning && !scanError && !scan && (
-                  <div className="scan-message">
-                    <div className="empty-icon">⌕</div>
-                    <strong>Refresh to discover this thread's runtimes</strong>
-                    <p>Only processes with direct evidence for this worktree appear here.</p>
-                  </div>
-                )}
-                {!scanning && scan && worktreeRuntimes.length === 0 && (
-                  <div className="scan-message">
-                    <div className="empty-icon">⌕</div>
-                    <strong>No runtimes found for this thread</strong>
-                    <p>
-                      No process executable path or command line referenced this worktree in the
-                      latest scan.
-                    </p>
-                  </div>
-                )}
-                {!scanning &&
-                  worktreeRuntimes.map((runtime) => (
-                    <RuntimeGroup
-                      runtime={runtime}
-                      selected={previewed?.id === runtime.id}
-                      selectable={worktreeRuntimes.length > 1}
-                      onSelect={setPreviewId}
-                      onTakeControl={refreshRuntimes}
-                      key={runtime.id}
-                    />
-                  ))}
-                {!scanning && previewed && <RuntimePreview runtime={previewed} />}
-              </div>
-              {scan?.limitations.length > 0 && (
-                <div className="scan-limitations">
-                  <strong>Partial scan · other results are still shown</strong>
-                  {scan.limitations.map((limitation, index) => (
-                    <span key={index}>{limitation}</span>
-                  ))}
-                </div>
-              )}
+              </section>
             </section>
-          </section>
+          )}
+        </main>
+
+        {settingsOpen && (
+          <Settings
+            settings={settings}
+            onChange={changeSettings}
+            connection={connection}
+            onConnect={connect}
+            onDisconnect={disconnect}
+            update={update}
+            onClose={() => setSettingsOpen(false)}
+          />
         )}
-      </main>
+      </div>
 
       <footer className="bottom-note">
         <span className="status-light" /> Threads refresh from T3 every 5 seconds
         <span className="footer-separator">·</span> Take Control brings the selected app window
         forward; build, start and stop are not connected
         <span className="footer-spacer" />
-        {update && (
+        <div className="footer-buttons">
+          {update && (
+            <button
+              className={'update-button' + (update.latest ? ' update-available' : '')}
+              onClick={() => setUpdateOpen(true)}
+              title={
+                update.latest
+                  ? `Update to v${update.latest.version}`
+                  : `Up to date · v${update.currentVersion}`
+              }
+              aria-label={
+                update.latest ? `Update available: v${update.latest.version}` : 'Check for updates'
+              }
+            >
+              <UpdateIcon />
+            </button>
+          )}
           <button
-            className={'update-button' + (update.latest ? ' update-available' : '')}
-            onClick={() => setUpdateOpen(true)}
-            title={
-              update.latest
-                ? `Update to v${update.latest.version}`
-                : `Up to date · v${update.currentVersion}`
-            }
-            aria-label={
-              update.latest ? `Update available: v${update.latest.version}` : 'Check for updates'
-            }
+            className={'settings-button' + (settingsOpen ? ' active' : '')}
+            onClick={() => setSettingsOpen((open) => !open)}
+            title="Settings"
+            aria-label="Settings"
+            aria-pressed={settingsOpen}
           >
-            <UpdateIcon />
+            <SettingsIcon />
           </button>
-        )}
+        </div>
       </footer>
       {updateOpen && update && (
         <UpdateDialog update={update} onClose={() => setUpdateOpen(false)} />
