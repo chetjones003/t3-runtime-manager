@@ -2,6 +2,10 @@
 
 Every merge to `main` publishes the next patch version. Each pull request adds its own section at the top. The app's update window shows the section for the version it installs.
 
+## v0.1.8
+
+- No changes to the app. This release only changed how releases are built.
+
 ## v0.1.7
 
 - The app checks for updates when it opens and every hour after that. When a new version is out, the update button in the bottom-right corner lights up.
