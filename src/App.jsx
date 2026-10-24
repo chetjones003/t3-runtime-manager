@@ -916,102 +916,114 @@ export default function App() {
             </div>
           )}
 
-          {connection.state === 'needs-connect' && (
-            <ConnectPanel
-              connection={connection}
-              connectError={connectError}
-              connecting={connecting}
-              onConnect={connect}
-            />
-          )}
-
-          {connection.state === 'loading' && (
-            <div className="scan-message">
-              <span className="spinner large-spinner" />
-              <strong>Reading threads from T3…</strong>
-            </div>
-          )}
-
-          {t3Data && threads.length === 0 && (
-            <div className="scan-message">
-              <div className="empty-icon">⌕</div>
-              <strong>No active threads with a worktree on this computer</strong>
-              <p>Active threads appear here once T3 creates a worktree for them.</p>
-            </div>
-          )}
-
-          {threads.length > 0 && (
-            <section className="work-area">
-              <div className="thread-sidebar">
-                <div
-                  className="sidebar-heading"
-                  title="Your active T3 threads that have a worktree on this computer. Runtime discovery reads process and TCP listener metadata without changing running apps."
-                >
-                  Active threads{' '}
-                  <span className="count-pill">
-                    {visibleThreads.length === threads.length
-                      ? threads.length + ' in T3'
-                      : visibleThreads.length + ' of ' + threads.length}
-                  </span>
-                </div>
-                <div className="thread-search">
-                  <input
-                    type="search"
-                    aria-label="Search threads"
-                    placeholder={
-                      settings.searchScope === 'title'
-                        ? 'Search thread titles'
-                        : 'Search threads, branches, projects'
-                    }
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    spellCheck="false"
-                  />
-                </div>
-                <div
-                  className={'thread-list' + (stale ? ' stale' : '')}
-                  role="list"
-                  aria-label="Active threads"
-                >
-                  {visibleThreads.length === 0 && (
-                    <div className="thread-list-empty">
-                      {query
-                        ? 'No threads match your search.'
-                        : 'All projects are hidden in Settings.'}
-                    </div>
-                  )}
-                  {threadGroups.map(([project, projectThreads]) => (
-                    <section className="thread-project-group" key={project ?? 'all'}>
-                      {project !== null && (
-                        <div className="thread-project-heading">
-                          <span className="project-badge" aria-hidden="true">
-                            {project.slice(0, 2).toUpperCase()}
-                          </span>
-                          <span>{project}</span>
-                          <span className="thread-project-count">{projectThreads.length}</span>
-                        </div>
-                      )}
-                      {projectThreads.map((thread) => (
-                        <ThreadRow
-                          thread={thread}
-                          selected={selected?.id === thread.id}
-                          onSelect={setSelectedId}
-                          onOpen={openInT3}
-                          canOpen={!stale}
-                          showBranch={settings.showBranch}
-                          key={thread.id}
-                        />
-                      ))}
-                    </section>
-                  ))}
-                </div>
-                {openError && (
-                  <div className="connect-error" role="alert">
-                    {openError}
+          <section className="work-area">
+            <div className="thread-sidebar">
+              {threads.length > 0 ? (
+                <>
+                  <div
+                    className="sidebar-heading"
+                    title={`Your active T3 threads that have a worktree on this computer. Refreshed from T3 every ${settings.refreshSeconds} seconds. Runtime discovery reads process and TCP listener metadata without changing running apps; Take Control only brings an app window forward.`}
+                  >
+                    Active threads{' '}
+                    <span className="count-pill">
+                      {visibleThreads.length === threads.length
+                        ? threads.length + ' in T3'
+                        : visibleThreads.length + ' of ' + threads.length}
+                    </span>
                   </div>
+                  <div className="thread-search">
+                    <input
+                      type="search"
+                      aria-label="Search threads"
+                      placeholder={
+                        settings.searchScope === 'title'
+                          ? 'Search thread titles'
+                          : 'Search threads, branches, projects'
+                      }
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      spellCheck="false"
+                    />
+                  </div>
+                  <div
+                    className={'thread-list' + (stale ? ' stale' : '')}
+                    role="list"
+                    aria-label="Active threads"
+                  >
+                    {visibleThreads.length === 0 && (
+                      <div className="thread-list-empty">
+                        {query
+                          ? 'No threads match your search.'
+                          : 'All projects are hidden in Settings.'}
+                      </div>
+                    )}
+                    {threadGroups.map(([project, projectThreads]) => (
+                      <section className="thread-project-group" key={project ?? 'all'}>
+                        {project !== null && (
+                          <div className="thread-project-heading">
+                            <span className="project-badge" aria-hidden="true">
+                              {project.slice(0, 2).toUpperCase()}
+                            </span>
+                            <span>{project}</span>
+                            <span className="thread-project-count">{projectThreads.length}</span>
+                          </div>
+                        )}
+                        {projectThreads.map((thread) => (
+                          <ThreadRow
+                            thread={thread}
+                            selected={selected?.id === thread.id}
+                            onSelect={setSelectedId}
+                            onOpen={openInT3}
+                            canOpen={!stale}
+                            showBranch={settings.showBranch}
+                            key={thread.id}
+                          />
+                        ))}
+                      </section>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="sidebar-fill" />
+              )}
+              {openError && (
+                <div className="connect-error" role="alert">
+                  {openError}
+                </div>
+              )}
+              <div className="sidebar-footer">
+                <button
+                  className={'settings-button' + (settingsOpen ? ' active' : '')}
+                  onClick={() => setSettingsOpen((open) => !open)}
+                  title="Settings"
+                  aria-label="Settings"
+                  aria-pressed={settingsOpen}
+                >
+                  <SettingsIcon />
+                </button>
+                <span className="sidebar-footer-spacer" />
+                {update && (
+                  <button
+                    className={'update-button' + (update.latest ? ' update-available' : '')}
+                    onClick={() => setUpdateOpen(true)}
+                    title={
+                      update.latest
+                        ? `Update to v${update.latest.version}`
+                        : `Up to date · v${update.currentVersion}`
+                    }
+                    aria-label={
+                      update.latest
+                        ? `Update available: v${update.latest.version}`
+                        : 'Check for updates'
+                    }
+                  >
+                    <UpdateIcon />
+                  </button>
                 )}
               </div>
+            </div>
 
+            {threads.length > 0 ? (
               <section className="app-stage runtime-stage" aria-label="Runtimes for this thread">
                 <div className="stage-toolbar">
                   <div>
@@ -1092,8 +1104,34 @@ export default function App() {
                   </div>
                 )}
               </section>
-            </section>
-          )}
+            ) : (
+              <div className="stage-fallback">
+                {connection.state === 'needs-connect' && (
+                  <ConnectPanel
+                    connection={connection}
+                    connectError={connectError}
+                    connecting={connecting}
+                    onConnect={connect}
+                  />
+                )}
+
+                {connection.state === 'loading' && (
+                  <div className="scan-message">
+                    <span className="spinner large-spinner" />
+                    <strong>Reading threads from T3…</strong>
+                  </div>
+                )}
+
+                {t3Data && threads.length === 0 && (
+                  <div className="scan-message">
+                    <div className="empty-icon">⌕</div>
+                    <strong>No active threads with a worktree on this computer</strong>
+                    <p>Active threads appear here once T3 creates a worktree for them.</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
         </main>
 
         {settingsOpen && (
@@ -1110,40 +1148,6 @@ export default function App() {
         )}
       </div>
 
-      <footer className="bottom-note">
-        <span className="status-light" /> Threads refresh from T3 every {settings.refreshSeconds}{' '}
-        seconds
-        <span className="footer-separator">·</span> Take Control brings the selected app window
-        forward; build, start and stop are not connected
-        <span className="footer-spacer" />
-        <div className="footer-buttons">
-          {update && (
-            <button
-              className={'update-button' + (update.latest ? ' update-available' : '')}
-              onClick={() => setUpdateOpen(true)}
-              title={
-                update.latest
-                  ? `Update to v${update.latest.version}`
-                  : `Up to date · v${update.currentVersion}`
-              }
-              aria-label={
-                update.latest ? `Update available: v${update.latest.version}` : 'Check for updates'
-              }
-            >
-              <UpdateIcon />
-            </button>
-          )}
-          <button
-            className={'settings-button' + (settingsOpen ? ' active' : '')}
-            onClick={() => setSettingsOpen((open) => !open)}
-            title="Settings"
-            aria-label="Settings"
-            aria-pressed={settingsOpen}
-          >
-            <SettingsIcon />
-          </button>
-        </div>
-      </footer>
       {updateOpen && update && (
         <UpdateDialog update={update} onClose={() => setUpdateOpen(false)} />
       )}

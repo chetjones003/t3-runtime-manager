@@ -103,8 +103,7 @@ select {
   user-select: none;
 }
 .topbar-spacer,
-.stage-toolbar-spacer,
-.footer-spacer {
+.stage-toolbar-spacer {
   flex: 1;
 }
 .window-controls {
@@ -856,36 +855,33 @@ select {
   white-space: pre-wrap;
 }
 
-/* Footer */
-.bottom-note {
+/* Sidebar footer */
+.sidebar-fill {
+  flex: 1;
+}
+.sidebar-footer {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 7px;
-  min-height: 38px;
-  padding: 0 10px 0 14px;
-  background: var(--surface);
+  padding: 8px 10px;
   border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 0.769rem;
 }
-.status-light {
-  background: var(--amber);
+.sidebar-footer-spacer {
+  flex: 1;
 }
-.footer-separator {
-  color: var(--faint);
-}
-.footer-buttons {
+.stage-fallback {
   display: flex;
-  align-items: center;
-  gap: 2px;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
 }
 .update-button,
 .settings-button {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   border-radius: 50%;
   border-color: transparent;
@@ -1365,8 +1361,5 @@ select {
   }
   .settings-body {
     padding: 18px 14px 30px;
-  }
-  .bottom-note {
-    font-size: 0.692rem;
   }
 }
