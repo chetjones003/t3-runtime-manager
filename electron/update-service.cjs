@@ -10,6 +10,8 @@ const releaseNotesUrl = (tag) =>
   `https://raw.githubusercontent.com/chetjones003/t3-runtime-manager/${encodeURIComponent(tag)}/RELEASE_NOTES.md`;
 const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const TRUSTED_DOWNLOAD_HOSTS = new Set(['github.com']);
+// The installer is saved under a fixed name so nothing from the network reaches the launched path.
+const INSTALLER_FILE_NAME = 'T3-Runtime-Manager-Setup.exe';
 
 function parseVersion(value) {
   const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(String(value ?? '').trim());
@@ -26,7 +28,8 @@ function isNewerVersion(candidate, current) {
   return false;
 }
 
-// Only the Windows NSIS installer can update in place silently today.
+// Only the Windows NSIS installer can update in place silently today, and only with a published
+// checksum to verify the download against.
 function pickInstallerAsset(assets, platform) {
   if (platform !== 'win32' || !Array.isArray(assets)) return null;
   return (
@@ -34,7 +37,8 @@ function pickInstallerAsset(assets, platform) {
       (asset) =>
         typeof asset?.name === 'string' &&
         /Setup.*\.exe$/i.test(asset.name) &&
-        typeof asset.browser_download_url === 'string',
+        typeof asset.browser_download_url === 'string' &&
+        /^sha256:[a-f0-9]{64}$/i.test(asset.digest ?? ''),
     ) ?? null
   );
 }
@@ -146,7 +150,7 @@ function createUpdateService({
 
   async function download(controller) {
     fs.mkdirSync(downloadDir, { recursive: true });
-    const target = path.join(downloadDir, path.basename(asset.name));
+    const target = path.join(downloadDir, INSTALLER_FILE_NAME);
     const response = await fetchImpl(asset.browser_download_url, {
       headers: { 'User-Agent': 'T3-Runtime-Manager' },
       signal: controller.signal,
@@ -168,8 +172,8 @@ function createUpdateService({
       await new Promise((resolve) => file.end(resolve));
     }
 
-    const expected = /^sha256:([a-f0-9]{64})$/i.exec(asset.digest ?? '')?.[1];
-    if (expected && hash.digest('hex') !== expected.toLowerCase()) {
+    const expected = asset.digest.slice('sha256:'.length).toLowerCase();
+    if (hash.digest('hex') !== expected) {
       fs.rmSync(target, { force: true });
       throw new Error('The downloaded installer did not match its published checksum.');
     }

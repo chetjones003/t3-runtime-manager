@@ -86,6 +86,19 @@ test('picks the NSIS installer only on Windows', () => {
   assert.equal(pickInstallerAsset(release.assets, 'darwin'), null);
 });
 
+test('refuses an installer without a published checksum', () => {
+  const { digest: _digest, ...unverified } = installerAsset;
+  assert.equal(pickInstallerAsset([unverified], 'win32'), null);
+});
+
+test('saves the installer under a fixed name', async () => {
+  const latest = { ...release, assets: [{ ...installerAsset, name: '..\\evil Setup.exe' }] };
+  const { service, spawned } = makeService({ fetchImpl: fakeFetch({ latest }).fetchImpl });
+  await service.check();
+  await service.install();
+  assert.equal(path.basename(spawned[0].file), 'T3-Runtime-Manager-Setup.exe');
+});
+
 test('reports an available update with release notes', async () => {
   const { service } = makeService({ fetchImpl: fakeFetch().fetchImpl });
   const state = await service.check();
