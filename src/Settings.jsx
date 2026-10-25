@@ -3,11 +3,9 @@ import {
   DEFAULT_SETTINGS,
   FONT_SIZE,
   FONT_STACKS,
-  PROJECT_ORDERS,
   REFRESH_SECONDS,
   SEARCH_SCOPES,
   THEMES,
-  THREAD_SORTS,
   fontStack,
 } from './settings.mjs';
 
@@ -135,30 +133,6 @@ function General({ settings, onChange, projects }) {
   return (
     <>
       <Group title="Threads">
-        <Row title="Group by project" description="Show threads under a heading for each project.">
-          <Toggle
-            label="Group by project"
-            checked={settings.groupByProject}
-            onChange={(value) => onChange({ groupByProject: value })}
-          />
-        </Row>
-        <Row title="Project order" description="How project groups are ordered in the list.">
-          <Choice
-            label="Project order"
-            value={settings.projectOrder}
-            options={PROJECT_ORDERS}
-            disabled={!settings.groupByProject}
-            onChange={(value) => onChange({ projectOrder: value })}
-          />
-        </Row>
-        <Row title="Thread order" description="How threads are ordered within a group.">
-          <Choice
-            label="Thread order"
-            value={settings.threadSort}
-            options={THREAD_SORTS}
-            onChange={(value) => onChange({ threadSort: value })}
-          />
-        </Row>
         <Row title="Show branch" description="Show each thread's git branch under its title.">
           <Toggle
             label="Show branch"
@@ -216,15 +190,9 @@ function General({ settings, onChange, projects }) {
           />
         </Row>
         <Row
-          title="Scan runtimes on start"
-          description="Look for running apps as soon as T3 connects. You can always use Refresh runtimes."
-        >
-          <Toggle
-            label="Scan runtimes on start"
-            checked={settings.autoScan}
-            onChange={(value) => onChange({ autoScan: value })}
-          />
-        </Row>
+          title="Runtime refresh"
+          description="Runtimes refresh when the app window gets focus."
+        />
       </Group>
     </>
   );

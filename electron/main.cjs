@@ -141,6 +141,9 @@ ipcMain.handle('runtime-discovery:scan', async (event, requestedWorktrees) => {
   assertTrustedSender(event, 'Runtime discovery');
 
   const worktrees = validateWorktrees(requestedWorktrees);
+  const sourceWarmup = runtimePreviewIpc.hasWindowSources()
+    ? Promise.resolve()
+    : runtimePreviewIpc.refreshWindowSources().catch(() => null);
   const collected = await collectRuntimeData();
   const scan = normalizeRuntimeScan({ ...collected, worktrees, platform: process.platform });
   const apps = groupRuntimeApps({
@@ -150,6 +153,11 @@ ipcMain.handle('runtime-discovery:scan', async (event, requestedWorktrees) => {
     platform: process.platform,
   });
   takeControl.remember(apps);
+  const preparedHandles = await takeControl.preparePreviews(runtimePreviewIpc.hasWindowSource);
+  await sourceWarmup;
+  if (preparedHandles.some((handle) => handle && !runtimePreviewIpc.hasWindowSource(handle))) {
+    await runtimePreviewIpc.refreshWindowSources().catch(() => null);
+  }
   return {
     runtimes: apps,
     limitations: scan.limitations,
@@ -327,6 +335,7 @@ app.whenReady().then(() => {
     { useSystemPicker: false },
   );
   createWindow();
+  runtimePreviewIpc.refreshWindowSources().catch(() => {});
   updates.start();
 
   app.on('activate', () => {

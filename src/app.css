@@ -824,9 +824,11 @@ select {
   background: #000;
   user-select: none;
   cursor: default;
+  pointer-events: none;
 }
 .preview-body iframe {
   background: #fff;
+  pointer-events: none;
 }
 .preview-empty {
   max-width: 340px;

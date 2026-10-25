@@ -307,9 +307,7 @@ export function applySettings(settings, root = document.documentElement) {
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.bg);
 }
 
-const STATE_RANK = { working: 0, waiting: 1, failed: 2, idle: 3, stopped: 4 };
-
-// Filters, sorts and (optionally) groups threads for the sidebar.
+// Filters threads for the sidebar while preserving T3's order.
 // Returns [[heading | null, threads], ...]; a null heading means no grouping.
 export function organizeThreads(threads, settings, query = '') {
   const needle = query.trim().toLowerCase();
@@ -326,33 +324,8 @@ export function organizeThreads(threads, settings, query = '') {
         .includes(needle),
     );
   };
-  const byRecent = (a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt));
-  const compare = {
-    recent: byRecent,
-    title: (a, b) => a.title.localeCompare(b.title) || byRecent(a, b),
-    state: (a, b) => (STATE_RANK[a.state] ?? 3) - (STATE_RANK[b.state] ?? 3) || byRecent(a, b),
-  }[settings.threadSort];
-
-  const visible = threads
-    .filter((thread) => !hidden.has(thread.projectTitle || 'No project') && matches(thread))
-    .sort(compare);
-  if (!settings.groupByProject) return [[null, visible]];
-
-  const groups = new Map();
-  for (const thread of visible) {
-    const project = thread.projectTitle || 'No project';
-    if (!groups.has(project)) groups.set(project, []);
-    groups.get(project).push(thread);
-  }
-  const entries = Array.from(groups);
-  if (settings.projectOrder === 'name') entries.sort((a, b) => a[0].localeCompare(b[0]));
-  else {
-    const newest = ([, list]) =>
-      list
-        .map((thread) => String(thread.updatedAt))
-        .sort()
-        .pop();
-    entries.sort((a, b) => newest(b).localeCompare(newest(a)));
-  }
-  return entries;
+  const visible = threads.filter(
+    (thread) => !hidden.has(thread.projectTitle || 'No project') && matches(thread),
+  );
+  return [[null, visible]];
 }

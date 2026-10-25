@@ -177,53 +177,7 @@ function RuntimePreview({ runtime }) {
   const [stream, setStream] = useState(null);
   const videoRef = useRef(null);
   const previewRef = useRef(null);
-  const streamRef = useRef(null);
-  const lastPointerSend = useRef(0);
   const fitPreviewRef = useRef(() => {});
-
-  function sendPointer(event, type, delta = 0) {
-    if (preview.kind !== 'window' || !videoRef.current) return;
-    const now = performance.now();
-    if (type === 'move' && now - lastPointerSend.current < 100) return;
-    lastPointerSend.current = now;
-
-    const video = videoRef.current;
-    const bounds = video.getBoundingClientRect();
-    const imageRatio = video.videoWidth / video.videoHeight;
-    if (!imageRatio) return;
-    const boxRatio = bounds.width / bounds.height;
-    const drawnWidth = imageRatio > boxRatio ? bounds.width : bounds.height * imageRatio;
-    const drawnHeight = imageRatio > boxRatio ? bounds.width / imageRatio : bounds.height;
-    const left = bounds.left + (bounds.width - drawnWidth) / 2;
-    const top = bounds.top + (bounds.height - drawnHeight) / 2;
-    const x = (event.clientX - left) / drawnWidth;
-    const y = (event.clientY - top) / drawnHeight;
-    if (x < 0 || x > 1 || y < 0 || y > 1) return;
-    window.threadAppManager.sendPreviewInput(runtime.id, {
-      type,
-      x,
-      y,
-      button: event.button === 2 ? 'right' : 'left',
-      buttons: event.buttons ?? 0,
-      delta,
-    });
-  }
-
-  function sendKey(event) {
-    if (preview.kind !== 'window') return;
-    const keyCode = event.keyCode || event.which;
-    if (!keyCode) return;
-    event.preventDefault();
-    window.threadAppManager.sendPreviewInput(runtime.id, {
-      type: 'key',
-      keyCode,
-      charCodes:
-        event.key.length === 1 && !event.ctrlKey && !event.altKey
-          ? Array.from({ length: event.key.length }, (_, index) => event.key.charCodeAt(index))
-          : [],
-      modifiers: (event.shiftKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.altKey ? 4 : 0),
-    });
-  }
 
   useEffect(() => {
     let cancelled = false;
@@ -231,12 +185,10 @@ function RuntimePreview({ runtime }) {
     if (cachedStream?.getVideoTracks().some((track) => track.readyState === 'live')) {
       previewStreamCache.delete(runtime.id);
       previewStreamCache.set(runtime.id, cachedStream);
-      streamRef.current = cachedStream;
       setStream(cachedStream);
       setPreview({ kind: 'window' });
       return () => {
         cancelled = true;
-        streamRef.current = null;
       };
     }
     if (cachedStream) {
@@ -270,7 +222,6 @@ function RuntimePreview({ runtime }) {
           if (!cancelled) setPreview({ kind: 'ended' });
         });
         rememberPreviewStream(runtime.id, active);
-        streamRef.current = active;
         setStream(active);
         setPreview({ kind: 'window' });
       } catch (error) {
@@ -285,7 +236,6 @@ function RuntimePreview({ runtime }) {
 
     return () => {
       cancelled = true;
-      streamRef.current = null;
     };
   }, [runtime.id]);
 
@@ -356,7 +306,7 @@ function RuntimePreview({ runtime }) {
         <span className="preview-source">{runtime.name}</span>
         <span className="stage-toolbar-spacer" />
         {preview.kind === 'window' && (
-          <span className="preview-note">Live app · click, scroll, and type to control</span>
+          <span className="preview-note">Live view · Take Control to interact</span>
         )}
         {preview.kind === 'url' && <span className="preview-note">{preview.url}</span>}
       </div>
@@ -368,22 +318,8 @@ function RuntimePreview({ runtime }) {
             autoPlay
             muted
             playsInline
-            tabIndex={0}
             aria-label={runtime.name + ' window'}
             onLoadedMetadata={() => fitPreviewRef.current()}
-            onKeyDown={sendKey}
-            onMouseMove={(event) => sendPointer(event, 'move')}
-            onMouseDown={(event) => {
-              event.preventDefault();
-              videoRef.current?.focus({ preventScroll: true });
-              sendPointer(event, 'down');
-            }}
-            onMouseUp={(event) => sendPointer(event, 'up')}
-            onWheel={(event) => {
-              event.preventDefault();
-              sendPointer(event, 'wheel', Math.round(Math.max(-120, Math.min(120, -event.deltaY))));
-            }}
-            onContextMenu={(event) => event.preventDefault()}
           />
         )}
         {preview.kind === 'url' && (
@@ -391,6 +327,7 @@ function RuntimePreview({ runtime }) {
             src={preview.url}
             title={runtime.name + ' page'}
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            tabIndex={-1}
           />
         )}
         {previewMessages[preview.kind] && (
@@ -696,8 +633,7 @@ export default function App() {
   const [query, setQuery] = useState('');
   const threadsRef = useRef([]);
   const scannedOnce = useRef(false);
-  const settingsRef = useRef(settings);
-  settingsRef.current = settings;
+  const scanInFlight = useRef(false);
 
   useEffect(() => {
     if (window.threadAppManager.platform !== 'win32') return undefined;
@@ -724,6 +660,8 @@ export default function App() {
     visibleThreads.find((thread) => thread.id === selectedId) ?? visibleThreads[0] ?? null;
 
   const refreshRuntimes = useCallback(async () => {
+    if (scanInFlight.current || threadsRef.current.length === 0) return;
+    scanInFlight.current = true;
     setScanning(true);
     setScanError('');
     try {
@@ -734,6 +672,7 @@ export default function App() {
     } catch {
       setScanError('The runtime scan could not complete. Try refreshing again.');
     } finally {
+      scanInFlight.current = false;
       setScanning(false);
     }
   }, []);
@@ -746,7 +685,7 @@ export default function App() {
         if (!scannedOnce.current) {
           scannedOnce.current = true;
           threadsRef.current = result.threads;
-          if (settingsRef.current.autoScan) refreshRuntimes();
+          if (result.threads.length > 0) refreshRuntimes();
         }
       }
     },
@@ -775,6 +714,12 @@ export default function App() {
       clearInterval(timer);
     };
   }, [applyResult, settings.refreshSeconds]);
+
+  useEffect(() => {
+    const refresh = () => refreshRuntimes();
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [refreshRuntimes]);
 
   async function connect(code) {
     setConnecting(true);
@@ -1066,19 +1011,19 @@ export default function App() {
                       <strong>Scanning local processes and TCP listeners…</strong>
                     </div>
                   )}
-                  {!scanning && scanError && (
+                  {scanError && (
                     <div className="scan-message scan-error" role="alert">
                       {scanError}
                     </div>
                   )}
-                  {!scanning && !scanError && !scan && (
+                  {!scan && !scanError && (
                     <div className="scan-message">
                       <div className="empty-icon">⌕</div>
                       <strong>Refresh to discover this thread's runtimes</strong>
                       <p>Only processes with direct evidence for this worktree appear here.</p>
                     </div>
                   )}
-                  {!scanning && scan && selected && worktreeRuntimes.length === 0 && (
+                  {scan && selected && worktreeRuntimes.length === 0 && (
                     <div className="scan-message">
                       <div className="empty-icon">⌕</div>
                       <strong>No runtimes found for this thread</strong>
@@ -1088,18 +1033,17 @@ export default function App() {
                       </p>
                     </div>
                   )}
-                  {!scanning &&
-                    worktreeRuntimes.map((runtime) => (
-                      <RuntimeGroup
-                        runtime={runtime}
-                        selected={previewed?.id === runtime.id}
-                        selectable={worktreeRuntimes.length > 1}
-                        onSelect={setPreviewId}
-                        onTakeControl={refreshRuntimes}
-                        key={runtime.id}
-                      />
-                    ))}
-                  {!scanning && previewed && <RuntimePreview runtime={previewed} />}
+                  {worktreeRuntimes.map((runtime) => (
+                    <RuntimeGroup
+                      runtime={runtime}
+                      selected={previewed?.id === runtime.id}
+                      selectable={worktreeRuntimes.length > 1}
+                      onSelect={setPreviewId}
+                      onTakeControl={refreshRuntimes}
+                      key={runtime.id}
+                    />
+                  ))}
+                  {previewed && <RuntimePreview runtime={previewed} />}
                 </div>
                 {scan?.limitations.length > 0 && (
                   <div className="scan-limitations">

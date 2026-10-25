@@ -11,6 +11,30 @@ function registerRuntimePreviewIpc({
   // The window chosen by the latest preview request, per renderer. It is kept (not consumed)
   // so overlapping capture requests, such as React StrictMode's double effect, both succeed.
   const selectedDisplaySources = new Map();
+  let windowSources = new Map();
+  let sourceScanPromise = null;
+
+  async function refreshWindowSources() {
+    if (sourceScanPromise) return sourceScanPromise;
+    sourceScanPromise = desktopCapturer
+      .getSources({ types: ['window'], thumbnailSize: { width: 0, height: 0 } })
+      .then((sources) => {
+        const next = new Map();
+        for (const source of sources) {
+          const match = /^window:(\d+):/.exec(source.id);
+          if (match) next.set(match[1], source);
+        }
+        windowSources = next;
+        return next;
+      })
+      .finally(() => {
+        sourceScanPromise = null;
+      });
+    return sourceScanPromise;
+  }
+
+  const hasWindowSource = (handle) => windowSources.has(handle);
+  const hasWindowSources = () => windowSources.size > 0;
 
   ipcMain.handle('runtime:preview', async (event, runtimeId) => {
     assertTrustedSender(event, 'Runtime preview');
@@ -18,7 +42,7 @@ function registerRuntimePreviewIpc({
       throw new Error('Invalid runtime.');
     }
 
-    const preview = await takeControl.getPreview(runtimeId);
+    let preview = await takeControl.getPreview(runtimeId);
     if (preview.kind !== 'window') {
       selectedDisplaySources.delete(event.sender.id);
       return preview;
@@ -29,15 +53,26 @@ function registerRuntimePreviewIpc({
       return { kind: 'self' };
     }
 
-    let source;
+    let source = windowSources.get(preview.handle);
+    if (!source && windowSources.size > 0) {
+      // The cached handle may have gone away while its process stayed alive. Resolve it again.
+      takeControl.forgetPreviewWindow(runtimeId);
+      preview = await takeControl.getPreview(runtimeId);
+      if (preview.kind !== 'window') {
+        selectedDisplaySources.delete(event.sender.id);
+        return preview;
+      }
+      source = windowSources.get(preview.handle);
+    }
+    if (!source) {
+      await refreshWindowSources();
+      source = windowSources.get(preview.handle);
+    }
     // Hidden Qt windows may need a moment before Windows exposes them to desktop capture.
-    for (let attempt = 0; attempt < 5 && !source; attempt += 1) {
-      const sources = await desktopCapturer.getSources({
-        types: ['window'],
-        thumbnailSize: { width: 0, height: 0 },
-      });
-      source = sources.find((candidate) => candidate.id.startsWith(`window:${preview.handle}:`));
-      if (!source && attempt < 4) await delay(200);
+    if (!source) {
+      await delay(200);
+      await refreshWindowSources();
+      source = windowSources.get(preview.handle);
     }
     if (!source) {
       selectedDisplaySources.delete(event.sender.id);
@@ -60,7 +95,12 @@ function registerRuntimePreviewIpc({
     callback(source ? { video: source } : null);
   }
 
-  return { handleDisplayMediaRequest };
+  return {
+    handleDisplayMediaRequest,
+    refreshWindowSources,
+    hasWindowSource,
+    hasWindowSources,
+  };
 }
 
 module.exports = { registerRuntimePreviewIpc };
