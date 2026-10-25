@@ -76,6 +76,9 @@ function createTakeControlService({
 
   function remember(runtimes) {
     latest = new Map(runtimes.map((runtime) => [runtime.id, planTakeControl(runtime)]));
+    for (const runtimeId of previewWindows.keys()) {
+      if (!latest.has(runtimeId)) previewWindows.delete(runtimeId);
+    }
   }
 
   function planFor(runtimeId) {
@@ -296,6 +299,8 @@ function createTakeControlService({
       previewWindows.set(runtimeId, embedded.handle);
       return { kind: 'window', handle: embedded.handle };
     }
+    const cachedHandle = previewWindows.get(runtimeId);
+    if (cachedHandle) return { kind: 'window', handle: cachedHandle };
     let windowLookupError;
 
     if (platform === 'win32' && plan.windowTargets?.length > 0) {
@@ -322,10 +327,34 @@ function createTakeControlService({
     return { kind: platform === 'win32' ? 'none' : 'unsupported' };
   }
 
+  function forgetPreviewWindow(runtimeId) {
+    previewWindows.delete(runtimeId);
+  }
+
+  async function preparePreviews(hasWindowSource = () => false) {
+    const targets = [...latest.entries()].filter(([, plan]) => plan.windowTargets?.length > 0);
+    return Promise.all(
+      targets.map(async ([runtimeId, plan]) => {
+        const cachedHandle = previewWindows.get(runtimeId);
+        if (cachedHandle && hasWindowSource(cachedHandle)) return cachedHandle;
+        previewWindows.delete(runtimeId);
+        try {
+          const handle = await findWindow(plan.windowTargets);
+          if (handle) previewWindows.set(runtimeId, handle);
+          return handle;
+        } catch {
+          return null;
+        }
+      }),
+    );
+  }
+
   return {
     remember,
     takeControl,
     getPreview,
+    forgetPreviewWindow,
+    preparePreviews,
     sendPreviewInput,
     embedWindow,
     updateEmbeddedWindow,

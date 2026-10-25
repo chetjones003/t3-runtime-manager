@@ -2,6 +2,12 @@
 
 Every merge to `main` publishes the next patch version. Each pull request adds its own section at the top. The app's update window shows the section for the version it installs.
 
+## v0.1.11
+
+- Threads stay in T3 order instead of moving when their activity changes.
+- Runtime scans run when the app window gets focus.
+- Runtime previews load faster and stay read-only until you choose Take Control.
+
 ## v0.1.10
 
 - When T3 is not connected, the connection form is now centered, and the empty thread list explains what to do.

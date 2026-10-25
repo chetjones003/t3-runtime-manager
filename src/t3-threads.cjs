@@ -75,11 +75,15 @@ function normalizeShellSnapshot(snapshot, { pathExists, now = Date.now() }) {
       branch: typeof thread.branch === 'string' ? thread.branch : '',
       worktree: thread.worktreePath,
       state: deriveThreadState(thread),
+      createdAt: thread.createdAt ?? null,
       updatedAt: thread.updatedAt ?? null,
     });
   }
-  threads.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
-
+  threads.sort(
+    (a, b) =>
+      String(b.createdAt ?? b.updatedAt).localeCompare(String(a.createdAt ?? a.updatedAt)) ||
+      a.id.localeCompare(b.id),
+  );
   return { threads };
 }
 
