@@ -55,9 +55,11 @@ function normalizeShellSnapshot(snapshot, { pathExists, now = Date.now() }) {
   for (const thread of Array.isArray(snapshot?.threads) ? snapshot.threads : []) {
     const project = projects.get(thread.projectId);
     const worktreePath =
-      (typeof thread.worktreePath === 'string' && thread.worktreePath.trim() &&
+      (typeof thread.worktreePath === 'string' &&
+        thread.worktreePath.trim() &&
         thread.worktreePath) ||
-      (typeof thread.workspacePath === 'string' && thread.workspacePath.trim() &&
+      (typeof thread.workspacePath === 'string' &&
+        thread.workspacePath.trim() &&
         thread.workspacePath) ||
       project?.workspaceRoot;
     if (
