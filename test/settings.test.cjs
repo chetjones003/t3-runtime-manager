@@ -16,44 +16,26 @@ const threads = [
   thread('3', 'Zebra work', 'Alpha', '2026-02-01', 'waiting', 'feature/login'),
 ];
 
-test('threads group by project with the most recently active project first', async () => {
+test('threads keep the order supplied by T3 without grouping by project', async () => {
   const { organizeThreads, DEFAULT_SETTINGS } = await load();
   const groups = organizeThreads(threads, DEFAULT_SETTINGS);
   assert.deepEqual(
     groups.map(([name, list]) => [name, list.map((entry) => entry.id)]),
-    [
-      ['Beta', ['2']],
-      ['Alpha', ['3', '1']],
-    ],
+    [[null, ['1', '2', '3']]],
   );
 });
 
-test('project order, thread order and ungrouped mode are honored', async () => {
+test('legacy project and thread sorting settings do not reorder T3 threads', async () => {
   const { organizeThreads, DEFAULT_SETTINGS } = await load();
-  const byName = organizeThreads(threads, {
+  const organized = organizeThreads(threads, {
     ...DEFAULT_SETTINGS,
     projectOrder: 'name',
     threadSort: 'title',
-  });
-  assert.deepEqual(
-    byName.map(([name]) => name),
-    ['Alpha', 'Beta'],
-  );
-  assert.deepEqual(
-    byName[0][1].map((entry) => entry.id),
-    ['1', '3'],
-  );
-
-  const flat = organizeThreads(threads, {
-    ...DEFAULT_SETTINGS,
     groupByProject: false,
-    threadSort: 'state',
   });
-  assert.equal(flat.length, 1);
-  assert.equal(flat[0][0], null);
   assert.deepEqual(
-    flat[0][1].map((entry) => entry.id),
-    ['2', '3', '1'],
+    organized.map(([name, list]) => [name, list.map((entry) => entry.id)]),
+    [[null, ['1', '2', '3']]],
   );
 });
 
@@ -61,8 +43,8 @@ test('hidden projects and search scope filter the list', async () => {
   const { organizeThreads, DEFAULT_SETTINGS } = await load();
   const hidden = organizeThreads(threads, { ...DEFAULT_SETTINGS, hiddenProjects: ['Beta'] });
   assert.deepEqual(
-    hidden.map(([name]) => name),
-    ['Alpha'],
+    hidden.flatMap(([, list]) => list.map((entry) => entry.id)),
+    ['1', '3'],
   );
 
   const wide = organizeThreads(threads, DEFAULT_SETTINGS, 'LOGIN').flatMap(([, list]) => list);

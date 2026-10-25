@@ -189,7 +189,10 @@ function General({ settings, onChange, projects }) {
             onChange={(value) => onChange({ refreshSeconds: Number(value) })}
           />
         </Row>
-        <Row title="Runtime refresh" description="Runtimes refresh when the app window gets focus." />
+        <Row
+          title="Runtime refresh"
+          description="Runtimes refresh when the app window gets focus."
+        />
       </Group>
     </>
   );

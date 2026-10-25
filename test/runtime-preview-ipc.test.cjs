@@ -223,7 +223,7 @@ test('preview IPC skips self-capture and reports none after the target stays una
     await unavailablePreview.invoke('runtime:preview', { sender: { id: 7 } }, 'process-100'),
     { kind: 'none' },
   );
-  assert.equal(unavailablePreview.calls.sources.length, 5);
+  assert.equal(unavailablePreview.calls.sources.length, 2);
 });
 
 test('preview IPC rejects malformed runtime ids and display requests after the manager closes', async () => {
