@@ -2,6 +2,11 @@
 
 Every merge to `main` publishes the next patch version. Each pull request adds its own section at the top. The app's update window shows the section for the version it installs.
 
+## v0.1.12
+
+- Opening update details no longer starts downloading; choose Update to begin or Close to cancel.
+- Active threads using T3's current checkout now appear alongside threads using separate worktrees.
+
 ## v0.1.11
 
 - Threads stay in T3 order instead of moving when their activity changes.

@@ -501,15 +501,6 @@ function ReleaseNotes({ notes }) {
 function UpdateDialog({ update, onClose }) {
   const available = update.status === 'available';
   const busy = update.status === 'downloading' || update.status === 'installing';
-  const started = useRef(false);
-
-  // Opening the dialog for an available update starts the download right away.
-  useEffect(() => {
-    if (available && update.canInstall && !update.error && !started.current) {
-      started.current = true;
-      window.threadAppManager.installUpdate();
-    }
-  }, [available, update.canInstall, update.error]);
 
   const percent = Math.round((update.progress ?? 0) * 100);
   return (
@@ -589,7 +580,7 @@ function UpdateDialog({ update, onClose }) {
                   className="button-primary"
                   onClick={() => window.threadAppManager.installUpdate()}
                 >
-                  {update.error ? 'Try again' : 'Update and restart'}
+                  {update.error ? 'Try again' : 'Update'}
                 </button>
               )}
               {available && !update.canInstall && (

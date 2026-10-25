@@ -41,7 +41,8 @@ function isActiveThread(thread, now) {
   return !(snoozedUntil > now);
 }
 
-// Keeps the threads T3 lists as active: top-level, not settled, snoozed or archived, with a live worktree.
+// Keeps active top-level T3 threads whose effective workspace exists. Threads using T3's
+// current-checkout mode may not have a thread worktree, so use the project workspace as fallback.
 function normalizeShellSnapshot(snapshot, { pathExists, now = Date.now() }) {
   const projects = new Map(
     (Array.isArray(snapshot?.projects) ? snapshot.projects : []).map((project) => [
@@ -52,28 +53,36 @@ function normalizeShellSnapshot(snapshot, { pathExists, now = Date.now() }) {
   const threads = [];
   const seen = new Set();
   for (const thread of Array.isArray(snapshot?.threads) ? snapshot.threads : []) {
+    const project = projects.get(thread.projectId);
+    const worktreePath =
+      (typeof thread.worktreePath === 'string' &&
+        thread.worktreePath.trim() &&
+        thread.worktreePath) ||
+      (typeof thread.workspacePath === 'string' &&
+        thread.workspacePath.trim() &&
+        thread.workspacePath) ||
+      project?.workspaceRoot;
     if (
       thread.archivedAt ||
       thread.deletedAt ||
       thread.lineage?.parentThreadId ||
       !isActiveThread(thread, now) ||
       typeof thread.id !== 'string' ||
-      typeof thread.worktreePath !== 'string' ||
-      !thread.worktreePath.trim() ||
-      !pathExists(thread.worktreePath) ||
+      typeof worktreePath !== 'string' ||
+      !worktreePath.trim() ||
+      !pathExists(worktreePath) ||
       seen.has(thread.id)
     ) {
       continue;
     }
     seen.add(thread.id);
-    const project = projects.get(thread.projectId);
     threads.push({
       id: thread.id,
       projectId: thread.projectId,
       projectTitle: project?.title ?? 'Unknown project',
       title: typeof thread.title === 'string' && thread.title ? thread.title : 'Untitled thread',
       branch: typeof thread.branch === 'string' ? thread.branch : '',
-      worktree: thread.worktreePath,
+      worktree: worktreePath,
       state: deriveThreadState(thread),
       createdAt: thread.createdAt ?? null,
       updatedAt: thread.updatedAt ?? null,
