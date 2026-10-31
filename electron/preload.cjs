@@ -7,16 +7,10 @@ contextBridge.exposeInMainWorld(
     getRuntimePreview: (runtimeId) => ipcRenderer.invoke('runtime:preview', runtimeId),
     sendPreviewInput: (runtimeId, input) =>
       ipcRenderer.invoke('runtime:preview-input', runtimeId, input),
-    embedRuntimeWindow: (runtimeId, bounds) =>
-      ipcRenderer.invoke('runtime:embed-window', runtimeId, bounds),
-    updateEmbeddedRuntimeWindow: (runtimeId, bounds) =>
-      ipcRenderer.invoke('runtime:update-embedded-window', runtimeId, bounds),
-    restoreEmbeddedRuntimeWindow: (runtimeId) =>
-      ipcRenderer.invoke('runtime:restore-embedded-window', runtimeId),
-    parkEmbeddedRuntimeWindow: (runtimeId) =>
-      ipcRenderer.invoke('runtime:park-embedded-window', runtimeId),
-    prepareEmbeddedRuntimeWindows: (runtimeIds) =>
-      ipcRenderer.invoke('runtime:prepare-embedded-windows', runtimeIds),
+    presentRuntimeWindow: (runtimeId, bounds, visible) =>
+      ipcRenderer.invoke('runtime:present-window', runtimeId, bounds, visible),
+    restorePresentedRuntimeWindow: (runtimeId) =>
+      ipcRenderer.invoke('runtime:restore-presented-window', runtimeId),
     takeControl: (runtimeId) => ipcRenderer.invoke('runtime:take-control', runtimeId),
     getT3Threads: () => ipcRenderer.invoke('t3:threads'),
     connectT3: (code) => ipcRenderer.invoke('t3:connect', code),
@@ -35,6 +29,7 @@ contextBridge.exposeInMainWorld(
     },
     platform: process.platform,
     controlWindow: (action) => ipcRenderer.invoke('window:control', action),
+    setWindowFullscreen: (fullscreen) => ipcRenderer.invoke('window:fullscreen', fullscreen),
     onWindowState: (callback) => {
       const listener = (_event, maximized) => callback(maximized);
       ipcRenderer.on('window:state', listener);

@@ -15,6 +15,9 @@ public static class WindowFocus {
   [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr hwnd, uint command);
   [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] private static extern int GetWindowLong(IntPtr hwnd, int index);
   [DllImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)] private static extern int SetWindowLong(IntPtr hwnd, int index, int value);
+  [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
+  [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
+  [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)] private static extern IntPtr SetWindowLongPtr(IntPtr hwnd, int index, IntPtr value);
   [DllImport("user32.dll", EntryPoint = "SetParent", SetLastError = true)] private static extern IntPtr SetParentWindow(IntPtr child, IntPtr parent);
   [DllImport("user32.dll", EntryPoint = "SetWindowPos")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
   [DllImport("user32.dll")] private static extern IntPtr GetParent(IntPtr hwnd);
@@ -30,6 +33,7 @@ public static class WindowFocus {
   [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
   [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
   private const int GWL_STYLE = -16;
+  private const int GWLP_HWNDPARENT = -8;
   private const int WS_CHILD = 0x40000000;
   private const int WS_POPUP = unchecked((int)0x80000000);
   private const int WS_CAPTION = 0x00C00000;
@@ -78,48 +82,106 @@ public static class WindowFocus {
     return found;
   }
 
-  public static string Embed(IntPtr hwnd, IntPtr host, int x, int y, int width, int height) {
-    RECT rect;
-    if (!GetWindowRect(hwnd, out rect)) return "none";
-    int style = GetWindowLong(hwnd, GWL_STYLE);
-    // FindWindow only returns top-level, unowned windows, so restore them as top-level windows.
-    IntPtr originalParent = IntPtr.Zero;
-    int childStyle = (style & ~(WS_POPUP | WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_MINIMIZE | WS_MAXIMIZE)) | WS_CHILD;
-    SetWindowLong(hwnd, GWL_STYLE, childStyle);
-    SetParentWindow(hwnd, host);
-    if (GetParent(hwnd) != host) {
-      SetParentWindow(hwnd, originalParent);
-      SetWindowLong(hwnd, GWL_STYLE, style);
-      return "none";
-    }
-    if (!SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height,
-      SWP_FRAMECHANGED | SWP_SHOWWINDOW)) {
-      SetParentWindow(hwnd, originalParent);
-      SetWindowLong(hwnd, GWL_STYLE, style);
-      SetWindowPos(hwnd, IntPtr.Zero, rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top,
-        SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
-      return "none";
-    }
-    SetForegroundWindow(hwnd);
-    SetFocus(hwnd);
-    return "{\"handle\":\"" + hwnd.ToInt64() + "\",\"parent\":\"" + originalParent.ToInt64() +
-      "\",\"style\":" + style + ",\"x\":" + rect.Left + ",\"y\":" + rect.Top +
-      ",\"width\":" + (rect.Right - rect.Left) + ",\"height\":" + (rect.Bottom - rect.Top) + "}";
+  // Presenting keeps the window top-level, so GPU-rendered apps keep drawing. The manager becomes
+  // its owner, which keeps it above the manager, and its own frame is removed so the manager's
+  // wrapper is the frame. Coordinates are physical screen pixels, so the thread is per-monitor aware.
+  [ComImport, Guid("56FDF342-FD6D-11d0-958A-006097C9A090"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  private interface ITaskbarList {
+    void HrInit();
+    void AddTab(IntPtr hwnd);
+    void DeleteTab(IntPtr hwnd);
+    void ActivateTab(IntPtr hwnd);
+    void SetActiveAlt(IntPtr hwnd);
   }
 
-  public static bool UpdateEmbed(IntPtr hwnd, int x, int y, int width, int height) {
-    return SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height,
-      SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+  [ComImport, Guid("56FDF344-FD6D-11d0-958A-006097C9A090")]
+  private class TaskbarList { }
+
+  // Adds or removes the window's taskbar button without changing whether the window is visible.
+  // Hiding an app's last visible window can make it quit, so visibility is never used for this.
+  private static void SetTaskbarButton(IntPtr hwnd, bool show) {
+    try {
+      ITaskbarList taskbar = (ITaskbarList)new TaskbarList();
+      taskbar.HrInit();
+      if (show) taskbar.AddTab(hwnd);
+      else taskbar.DeleteTab(hwnd);
+    } catch {
+      // The taskbar button is cosmetic; presenting and restoring still work without it.
+    }
   }
 
-  public static bool RestoreEmbed(IntPtr hwnd, IntPtr parent, int style, int x, int y, int width, int height) {
-    SetParentWindow(hwnd, parent);
-    SetWindowLong(hwnd, GWL_STYLE, style);
-    bool positioned = SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height,
-      SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
-    if ((style & WS_MAXIMIZE) != 0) ShowWindow(hwnd, 3);
-    else if ((style & WS_MINIMIZE) != 0) ShowWindow(hwnd, 6);
-    return positioned;
+  // A parked window keeps its own size but sits just left of every display: out of sight, while it
+  // keeps rendering for the live preview.
+  private static void ParkPosition(int width, out int x, out int y) {
+    x = GetSystemMetrics(76) - width - 100;
+    y = GetSystemMetrics(77);
+  }
+
+  public static string Present(IntPtr hwnd, IntPtr host, int x, int y, int width, int height, bool activate, bool park) {
+    IntPtr previousDpiContext = SetThreadDpiAwarenessContext(new IntPtr(-4));
+    try {
+      int style = GetWindowLong(hwnd, GWL_STYLE);
+      IntPtr owner = GetWindowLongPtr(hwnd, GWLP_HWNDPARENT);
+      // Save the normal size, not the maximized or minimized one, so restoring can reapply the state.
+      // SW_SHOWNOACTIVATE returns it to its normal size without taking focus.
+      if ((style & (WS_MAXIMIZE | WS_MINIMIZE)) != 0) ShowWindow(hwnd, 4);
+      RECT rect;
+      if (!GetWindowRect(hwnd, out rect)) return "none";
+      if (park) {
+        width = rect.Right - rect.Left;
+        height = rect.Bottom - rect.Top;
+        ParkPosition(width, out x, out y);
+      }
+      int framelessStyle = (style & ~(WS_CHILD | WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_MINIMIZE | WS_MAXIMIZE)) | WS_POPUP;
+      SetWindowLong(hwnd, GWL_STYLE, framelessStyle);
+      SetWindowLongPtr(hwnd, GWLP_HWNDPARENT, host);
+      uint flags = SWP_FRAMECHANGED | SWP_SHOWWINDOW | (activate ? 0u : SWP_NOACTIVATE);
+      if (!SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height, flags)) {
+        SetWindowLongPtr(hwnd, GWLP_HWNDPARENT, owner);
+        SetWindowLong(hwnd, GWL_STYLE, style & ~(WS_MAXIMIZE | WS_MINIMIZE));
+        SetWindowPos(hwnd, IntPtr.Zero, rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top,
+          SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        if ((style & WS_MAXIMIZE) != 0) ShowWindow(hwnd, 3);
+        return "none";
+      }
+      // Owned by the manager, the window belongs to it, not to the taskbar.
+      SetTaskbarButton(hwnd, false);
+      if (activate) Focus(hwnd);
+      return "{\"handle\":\"" + hwnd.ToInt64() + "\",\"owner\":\"" + owner.ToInt64() +
+        "\",\"style\":" + style + ",\"x\":" + rect.Left + ",\"y\":" + rect.Top +
+        ",\"width\":" + (rect.Right - rect.Left) + ",\"height\":" + (rect.Bottom - rect.Top) + "}";
+    } finally {
+      if (previousDpiContext != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpiContext);
+    }
+  }
+
+  public static bool UpdatePresent(IntPtr hwnd, IntPtr host, int x, int y, int width, int height, bool activate, bool park) {
+    IntPtr previousDpiContext = SetThreadDpiAwarenessContext(new IntPtr(-4));
+    try {
+      if (park) ParkPosition(width, out x, out y);
+      SetWindowLongPtr(hwnd, GWLP_HWNDPARENT, host);
+      bool moved = SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+      if (moved && activate) Focus(hwnd);
+      return moved;
+    } finally {
+      if (previousDpiContext != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpiContext);
+    }
+  }
+
+  public static bool RestorePresent(IntPtr hwnd, IntPtr owner, int style, int x, int y, int width, int height) {
+    IntPtr previousDpiContext = SetThreadDpiAwarenessContext(new IntPtr(-4));
+    try {
+      SetWindowLongPtr(hwnd, GWLP_HWNDPARENT, owner);
+      SetWindowLong(hwnd, GWL_STYLE, style & ~(WS_MAXIMIZE | WS_MINIMIZE));
+      bool positioned = SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height,
+        SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+      if ((style & WS_MAXIMIZE) != 0) ShowWindow(hwnd, 3);
+      else if ((style & WS_MINIMIZE) != 0) ShowWindow(hwnd, 6);
+      if (owner == IntPtr.Zero) SetTaskbarButton(hwnd, true);
+      return positioned;
+    } finally {
+      if (previousDpiContext != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpiContext);
+    }
   }
 
   public static bool Focus(IntPtr hwnd) {
@@ -196,23 +258,36 @@ public static class WindowFocus {
 # $Mode, $Targets ('pid:name,pid:name'), and input parameters are prepended by the caller, which
 # validates both before they get here.
 $result = 'none'
-if ($Mode -eq 'update-embed') {
-  if ([WindowFocus]::UpdateEmbed([IntPtr]([long]$EmbeddedHandle), $EmbedX, $EmbedY, $EmbedWidth, $EmbedHeight)) { $result = 'updated' }
-} elseif ($Mode -eq 'restore-embed') {
-  $saved = $OriginalState | ConvertFrom-Json
-  if ([WindowFocus]::RestoreEmbed([IntPtr]([long]$EmbeddedHandle), [IntPtr]([long]$saved.parent), [int]$saved.style, [int]$saved.x, [int]$saved.y, [int]$saved.width, [int]$saved.height)) { $result = 'restored' }
-} elseif ($Mode -eq 'embed') {
+function Test-TargetOwnsWindow([IntPtr]$Window) {
+  foreach ($entry in $Targets.Split(',')) {
+    $pidText, $name = $entry.Split(':', 2)
+    if ([WindowFocus]::OwnsWindow($Window, [uint32]$pidText)) { return $true }
+  }
+  return $false
+}
+
+if ($Mode -in @('update-present', 'restore-present')) {
+  $presentedWindow = [IntPtr]([long]$PresentedHandle)
+  if (Test-TargetOwnsWindow $presentedWindow) {
+    if ($Mode -eq 'update-present') {
+      if ([WindowFocus]::UpdatePresent($presentedWindow, [IntPtr]([long]$HostHandle), $PresentX, $PresentY, $PresentWidth, $PresentHeight, ($PresentActivate -eq 1), ($PresentPark -eq 1))) { $result = 'updated' }
+    } else {
+      $saved = $OriginalState | ConvertFrom-Json
+      if ([WindowFocus]::RestorePresent($presentedWindow, [IntPtr]([long]$saved.owner), [int]$saved.style, [int]$saved.x, [int]$saved.y, [int]$saved.width, [int]$saved.height)) { $result = 'restored' }
+    }
+  }
+} elseif ($Mode -eq 'present') {
   foreach ($entry in $Targets.Split(',')) {
     $pidText, $name = $entry.Split(':', 2)
     $process = Get-Process -Id ([int]$pidText) -ErrorAction SilentlyContinue
     if (-not $process -or ($process.ProcessName + '.exe') -ne $name) { continue }
     $window = [WindowFocus]::FindWindow([uint32]$process.Id)
     if ($window -eq [IntPtr]::Zero) { continue }
-    $result = [WindowFocus]::Embed($window, [IntPtr]([long]$HostHandle), $EmbedX, $EmbedY, $EmbedWidth, $EmbedHeight)
+    $result = [WindowFocus]::Present($window, [IntPtr]([long]$HostHandle), $PresentX, $PresentY, $PresentWidth, $PresentHeight, ($PresentActivate -eq 1), ($PresentPark -eq 1))
     if ($result -ne 'none') { break }
   }
 }
-if ($result -eq 'none' -and $Mode -notin @('update-embed', 'restore-embed', 'embed')) {
+if ($result -eq 'none' -and $Mode -notin @('present', 'update-present', 'restore-present')) {
 foreach ($entry in $Targets.Split(',')) {
   $pidText, $name = $entry.Split(':', 2)
   $process = Get-Process -Id ([int]$pidText) -ErrorAction SilentlyContinue

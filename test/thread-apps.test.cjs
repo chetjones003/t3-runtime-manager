@@ -141,3 +141,33 @@ test('a desktop app sorts ahead of compiler helpers and is selected as the previ
   assert.equal(apps[1].process.name, 'cl.exe');
   assert.equal(apps[1].kind, 'process');
 });
+
+test('a console host with a window title is never named as the launched app', () => {
+  const consoleProcesses = [
+    proc(10, 1, 'claude.exe', { commandLine: 'claude' }),
+    proc(90, 10, 'cmd.exe', { commandLine: `cmd.exe /d /s /c "npm run dev" ${WT}` }),
+    proc(91, 90, 'conhost.exe', {
+      executablePath: 'C:\Windows\System32\conhost.exe',
+      commandLine: '\??\C:\Windows\system32\conhost.exe 0x4',
+      windowTitle: 'C:\Windows\System32\cmd.exe',
+    }),
+  ];
+  const scan = normalizeRuntimeScan({
+    worktrees,
+    processes: consoleProcesses,
+    listeners: [],
+    platform: 'win32',
+  });
+  const apps = groupRuntimeApps({
+    runtimes: scan.runtimes,
+    processes: consoleProcesses,
+    listeners: [],
+    platform: 'win32',
+  });
+  assert.equal(apps.length, 1);
+  assert.equal(apps[0].process.name, 'cmd.exe');
+  assert.equal(
+    apps[0].helpers.some((helper) => helper.name === 'conhost.exe'),
+    false,
+  );
+});

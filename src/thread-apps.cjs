@@ -39,6 +39,7 @@ function descendantsOf(rootPid, childrenByParent) {
     for (const child of childrenByParent.get(pending.shift()) ?? []) {
       const childPid = Number(child.pid);
       if (seen.has(childPid) || AGENT_NAME.test(child.name ?? '')) continue;
+      if (TERMINAL_HOST_NAME.test(child.name ?? '')) continue;
       seen.add(childPid);
       found.push(child);
       pending.push(childPid);
@@ -67,7 +68,12 @@ function publicProcess(process, extra = {}) {
 }
 
 function choosePrimary(members, matchedPids, listeners, platform) {
-  const windowed = members.find((member) => member.windowTitle);
+  const windowed = members.find(
+    (member) =>
+      member.windowTitle &&
+      matchedPids.has(Number(member.pid)) &&
+      !SHELL_NAME.test(member.name ?? ''),
+  );
   if (windowed) return windowed;
   const classified = members.map((member) => ({
     member,
@@ -86,6 +92,7 @@ function choosePrimary(members, matchedPids, listeners, platform) {
     )?.member ??
     classified.find((entry) => entry.kind === 'browser-dev-server' && entry.listening)?.member ??
     classified.find((entry) => entry.listening)?.member ??
+    members.find((member) => member.windowTitle && !SHELL_NAME.test(member.name ?? '')) ??
     members.find((member) => !SHELL_NAME.test(member.name ?? '')) ??
     members[0]
   );

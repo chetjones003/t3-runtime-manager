@@ -35,36 +35,6 @@ function RuntimeKind({ runtime }) {
   );
 }
 
-function HelperList({ helpers }) {
-  if (helpers.length === 0) return null;
-  return (
-    <details className="helper-processes">
-      <summary>
-        {helpers.length} supporting {helpers.length === 1 ? 'process' : 'processes'}
-      </summary>
-      {helpers.map((helper) => (
-        <div key={helper.pid}>
-          {helper.name} · PID {helper.pid}
-          {helper.listeners.map((listener) => (
-            <code key={listener.address + listener.port}>
-              {listener.address}:{listener.port}
-            </code>
-          ))}
-        </div>
-      ))}
-    </details>
-  );
-}
-
-function MissingFields({ process }) {
-  if (process.missingFields.length === 0) return null;
-  return (
-    <div className="partial-detail">
-      Unavailable for this process: {process.missingFields.join(', ')}
-    </div>
-  );
-}
-
 const takeControlMessages = {
   focused: 'Brought its window to the front.',
   'opened-url': 'Opened it in your browser.',
@@ -72,7 +42,7 @@ const takeControlMessages = {
   unsupported: 'Take Control is not supported on this operating system yet.',
 };
 
-function RuntimeGroup({ runtime, selected, selectable, onSelect, onTakeControl }) {
+function RuntimeBar({ runtime, onTakeControl, hasWindow, fullscreen, onToggleFullscreen }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -91,64 +61,40 @@ function RuntimeGroup({ runtime, selected, selectable, onSelect, onTakeControl }
   }
 
   return (
-    <article
-      className={
-        'runtime-group' + (selectable ? ' selectable' : '') + (selected ? ' previewed' : '')
-      }
-      onClick={selectable ? () => onSelect(runtime.id) : undefined}
-    >
-      <div className="runtime-group-header">
-        <div className="runtime-group-title">
-          <RuntimeKind runtime={runtime} />
-          <strong>{runtime.name}</strong>
-        </div>
-        <div className="runtime-group-state">
-          <span className="chip state-running">
-            <i className="state-dot" />
-            {runtime.status === 'listening' ? 'Listening' : 'Running'}
+    <div className="runtime-bar">
+      <div className="runtime-bar-title">
+        <RuntimeKind runtime={runtime} />
+        <strong>{runtime.name}</strong>
+        <span className="chip state-running">
+          <i className="state-dot" />
+          {runtime.status === 'listening' ? 'Listening' : 'Running'}
+        </span>
+      </div>
+      <div className="runtime-bar-actions">
+        {message && (
+          <span className="take-control-message" role="status">
+            {message}
           </span>
-          <button
-            className="button-primary take-control"
-            onClick={(event) => {
-              event.stopPropagation();
-              takeControl();
-            }}
-            disabled={busy}
-          >
+        )}
+        {!hasWindow && (
+          <button className="button-primary take-control" onClick={takeControl} disabled={busy}>
             Take Control
           </button>
-        </div>
-      </div>
-      <div className="runtime-process">
-        PID {runtime.process.pid}
-        {runtime.process.executablePath && (
-          <span title={runtime.process.executablePath}>{runtime.process.executablePath}</span>
         )}
+        <button className="button-secondary" onClick={onToggleFullscreen}>
+          {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        </button>
       </div>
-      {runtime.listeners.length > 0 && (
-        <div className="runtime-endpoints">
-          <span className="eyebrow">TCP LISTENERS</span>
-          {runtime.listeners.map((listener) => (
-            <code key={listener.address + listener.port}>
-              {listener.address}:{listener.port}
-            </code>
-          ))}
-        </div>
-      )}
-      <ul className="runtime-evidence">
-        {runtime.evidence.map((evidence) => (
-          <li key={evidence}>{evidence}</li>
-        ))}
-      </ul>
-      <MissingFields process={runtime.process} />
-      <HelperList helpers={runtime.helpers} />
-      {message && (
-        <div className="take-control-message" role="status">
-          {message}
-        </div>
-      )}
-    </article>
+    </div>
   );
+}
+
+// Native window calls run one at a time, so a restore cannot interleave with a new presentation.
+let nativeQueue = Promise.resolve();
+function runNative(task) {
+  const result = nativeQueue.then(task);
+  nativeQueue = result.catch(() => {});
+  return result;
 }
 
 const previewMessages = {
@@ -172,12 +118,32 @@ function rememberPreviewStream(runtimeId, stream) {
   }
 }
 
-function RuntimePreview({ runtime }) {
+// The preview body's content box, inside its border and padding, in page pixels.
+function contentBounds(body) {
+  const rect = body.getBoundingClientRect();
+  const style = getComputedStyle(body);
+  const paddingLeft = parseFloat(style.paddingLeft);
+  const paddingTop = parseFloat(style.paddingTop);
+  return {
+    x: Math.round(rect.left + body.clientLeft + paddingLeft),
+    y: Math.round(rect.top + body.clientTop + paddingTop),
+    width: Math.round(body.clientWidth - paddingLeft - parseFloat(style.paddingRight)),
+    height: Math.round(body.clientHeight - paddingTop - parseFloat(style.paddingBottom)),
+  };
+}
+
+// Shows a live capture of the runtime's window. In fullscreen, the app's real window is placed over
+// the preview area instead, so it can be used directly; the capture stays underneath as a fallback.
+function RuntimePreview({ runtime, covered, fullscreen, onKindChange }) {
   const [preview, setPreview] = useState({ kind: 'loading' });
   const [stream, setStream] = useState(null);
+  const [presentFailed, setPresentFailed] = useState(false);
   const videoRef = useRef(null);
-  const previewRef = useRef(null);
-  const fitPreviewRef = useRef(() => {});
+  const bodyRef = useRef(null);
+
+  useEffect(() => {
+    onKindChange?.(preview.kind);
+  }, [preview.kind, onKindChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -212,12 +178,7 @@ function RuntimePreview({ runtime }) {
           setPreview(result);
           return;
         }
-        const videoTrack = active.getVideoTracks()[0];
-        if (cancelled) {
-          active.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        videoTrack?.addEventListener('ended', () => {
+        active.getVideoTracks()[0]?.addEventListener('ended', () => {
           if (previewStreamCache.get(runtime.id) === active) previewStreamCache.delete(runtime.id);
           if (!cancelled) setPreview({ kind: 'ended' });
         });
@@ -244,83 +205,97 @@ function RuntimePreview({ runtime }) {
   }, [stream, preview.kind]);
 
   useEffect(() => {
-    const section = previewRef.current;
-    const video = videoRef.current;
-    if (preview.kind !== 'window' || !section || !video) return undefined;
-    const panel = section.parentElement;
-    if (!panel) return undefined;
+    if (fullscreen) setPresentFailed(false);
+  }, [fullscreen]);
 
-    const fit = () => {
-      const sourceWidth = video.videoWidth;
-      const sourceHeight = video.videoHeight;
-      if (!sourceWidth || !sourceHeight) return;
+  // While its preview is open, the manager holds the window: parked off-screen at the preview's size
+  // so the live capture stays sharp, and moved over the preview area in fullscreen. An overlay such as
+  // an update dialog parks it again, since the window would otherwise sit on top of the overlay.
+  const holding = preview.kind === 'window' && !presentFailed;
+  const visible = fullscreen && !covered;
 
-      const panelStyle = getComputedStyle(panel);
-      const paddingX = parseFloat(panelStyle.paddingLeft) + parseFloat(panelStyle.paddingRight);
-      const paddingY = parseFloat(panelStyle.paddingTop) + parseFloat(panelStyle.paddingBottom);
-      const gap = parseFloat(panelStyle.rowGap) || 0;
-      const siblingsHeight = Array.from(panel.children)
-        .filter((child) => child !== section)
-        .reduce((total, child) => total + child.getBoundingClientRect().height, 0);
-      const siblingGaps = gap * Math.max(0, panel.children.length - 1);
-      const availableWidth = Math.max(1, panel.clientWidth - paddingX);
-      const availableHeight = Math.max(
-        120,
-        panel.clientHeight -
-          paddingY -
-          siblingsHeight -
-          siblingGaps -
-          section.querySelector('.preview-bar').getBoundingClientRect().height,
-      );
-      const scale = Math.min(availableWidth / sourceWidth, availableHeight / sourceHeight);
-      const width = Math.max(1, Math.floor(sourceWidth * scale));
-      const height = Math.max(1, Math.floor(sourceHeight * scale));
-      const barHeight = section.querySelector('.preview-bar').getBoundingClientRect().height;
-
-      section.style.width = `${width}px`;
-      section.style.height = `${height + barHeight}px`;
-      section.classList.add('preview-fitted');
-    };
-
-    fitPreviewRef.current = fit;
-    const observer = new ResizeObserver(fit);
-    observer.observe(panel);
-    observer.observe(section.querySelector('.preview-bar'));
-    Array.from(panel.children)
-      .filter((child) => child !== section)
-      .forEach((child) => observer.observe(child));
-    fit();
+  // Closing the preview hands the window back to its own position and frame.
+  useEffect(() => {
+    if (!holding) return undefined;
     return () => {
-      observer.disconnect();
-      section.style.width = '';
-      section.style.height = '';
-      section.classList.remove('preview-fitted');
-      fitPreviewRef.current = () => {};
+      runNative(() => window.threadAppManager.restorePresentedRuntimeWindow(runtime.id)).catch(
+        () => {},
+      );
     };
-  }, [preview.kind, runtime.id]);
+  }, [holding, runtime.id]);
+
+  // Parked, the window keeps its own size, so it is held once and the capture is scaled to fit.
+  useEffect(() => {
+    if (!holding || visible) return undefined;
+    let closed = false;
+    runNative(() => window.threadAppManager.presentRuntimeWindow(runtime.id, null, false))
+      .then((held) => {
+        if (!held && !closed) setPresentFailed(true);
+      })
+      .catch(() => {
+        if (!closed) setPresentFailed(true);
+      });
+    return () => {
+      closed = true;
+    };
+  }, [holding, visible, runtime.id]);
+
+  // Shown in fullscreen, the window fills the bordered area and follows it as the manager settles.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!holding || !visible || !body) return undefined;
+    let closed = false;
+    let frame = 0;
+    let running = false;
+    let pending = null;
+    const flush = async () => {
+      if (closed || running || !pending) return;
+      const bounds = pending;
+      pending = null;
+      running = true;
+      try {
+        const shown = await runNative(() =>
+          window.threadAppManager.presentRuntimeWindow(runtime.id, bounds, true),
+        );
+        if (!shown && !closed) setPresentFailed(true);
+      } catch {
+        if (!closed) setPresentFailed(true);
+      } finally {
+        running = false;
+        flush();
+      }
+    };
+    const measure = () => {
+      frame = 0;
+      const bounds = contentBounds(body);
+      if (bounds.width < 100 || bounds.height < 100) return;
+      pending = bounds;
+      flush();
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(body);
+    window.addEventListener('resize', schedule);
+    // The manager finishes maximizing after the page lays out, so measure once more then.
+    const settle = setTimeout(schedule, 400);
+    schedule();
+    return () => {
+      closed = true;
+      cancelAnimationFrame(frame);
+      clearTimeout(settle);
+      observer.disconnect();
+      window.removeEventListener('resize', schedule);
+    };
+  }, [holding, visible, runtime.id]);
 
   return (
-    <section ref={previewRef} className="runtime-preview" aria-label={'Preview of ' + runtime.name}>
-      <div className="preview-bar">
-        <span className="eyebrow">PREVIEW</span>
-        <span className="preview-source">{runtime.name}</span>
-        <span className="stage-toolbar-spacer" />
-        {preview.kind === 'window' && (
-          <span className="preview-note">Live view · Take Control to interact</span>
-        )}
-        {preview.kind === 'url' && <span className="preview-note">{preview.url}</span>}
-      </div>
-      <div className="preview-body">
+    <section className="runtime-preview" aria-label={'Preview of ' + runtime.name}>
+      <div ref={bodyRef} className="preview-body">
         {preview.kind === 'loading' && <span className="spinner large-spinner" />}
         {preview.kind === 'window' && (
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
-            aria-label={runtime.name + ' window'}
-            onLoadedMetadata={() => fitPreviewRef.current()}
-          />
+          <video ref={videoRef} autoPlay muted playsInline aria-label={runtime.name + ' window'} />
         )}
         {preview.kind === 'url' && (
           <iframe
@@ -339,6 +314,11 @@ function RuntimePreview({ runtime }) {
                 <code>{preview.detail}</code>
               </details>
             )}
+          </div>
+        )}
+        {fullscreen && presentFailed && (
+          <div className="preview-note-overlay" role="status">
+            The window could not be shown full size, so this is the live preview.
           </div>
         )}
       </div>
@@ -763,6 +743,23 @@ export default function App() {
     : [];
   const previewed =
     worktreeRuntimes.find((runtime) => runtime.id === previewId) ?? worktreeRuntimes[0];
+  const overlayOpen = settingsOpen || (updateOpen && Boolean(update));
+  const [previewKind, setPreviewKind] = useState(null);
+  const [fullscreen, setFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (!fullscreen) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setFullscreen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [fullscreen]);
+
+  // Fullscreen makes the manager window cover the screen, so the runtime fills the screen with it.
+  useEffect(() => {
+    window.threadAppManager.setWindowFullscreen(fullscreen).catch(() => {});
+  }, [fullscreen]);
   const scanState = scanning
     ? 'scanning'
     : scanError
@@ -784,7 +781,7 @@ export default function App() {
   const stale = Boolean(t3Data) && connection.state !== 'ok';
 
   return (
-    <div className="window-shell">
+    <div className={'window-shell' + (fullscreen ? ' runtime-fullscreen' : '')}>
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark">
@@ -996,18 +993,12 @@ export default function App() {
                   </button>
                 </div>
                 <div className="runtime-results">
-                  {scanning && (
-                    <div className="scan-message">
-                      <span className="spinner large-spinner" />
-                      <strong>Scanning local processes and TCP listeners…</strong>
-                    </div>
-                  )}
                   {scanError && (
                     <div className="scan-message scan-error" role="alert">
                       {scanError}
                     </div>
                   )}
-                  {!scan && !scanError && (
+                  {!scan && !scanError && !scanning && (
                     <div className="scan-message">
                       <div className="empty-icon">⌕</div>
                       <strong>Refresh to discover this thread's runtimes</strong>
@@ -1024,18 +1015,59 @@ export default function App() {
                       </p>
                     </div>
                   )}
-                  {worktreeRuntimes.map((runtime) => (
-                    <RuntimeGroup
-                      runtime={runtime}
-                      selected={previewed?.id === runtime.id}
-                      selectable={worktreeRuntimes.length > 1}
-                      onSelect={setPreviewId}
-                      onTakeControl={refreshRuntimes}
-                      key={runtime.id}
-                    />
-                  ))}
-                  {previewed && <RuntimePreview runtime={previewed} />}
+                  {worktreeRuntimes.length > 1 && (
+                    <div className="runtime-tabs" role="tablist">
+                      {worktreeRuntimes.map((runtime) => (
+                        <button
+                          key={runtime.id}
+                          role="tab"
+                          aria-selected={previewed?.id === runtime.id}
+                          className={
+                            'runtime-tab' + (previewed?.id === runtime.id ? ' active' : '')
+                          }
+                          onClick={() => setPreviewId(runtime.id)}
+                        >
+                          {runtime.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {previewed && (
+                    <>
+                      {fullscreen ? (
+                        <button
+                          className="fullscreen-exit"
+                          onClick={() => setFullscreen(false)}
+                          title="Exit fullscreen (Esc)"
+                        >
+                          Exit fullscreen
+                        </button>
+                      ) : (
+                        <RuntimeBar
+                          key={'bar-' + previewed.id}
+                          runtime={previewed}
+                          onTakeControl={refreshRuntimes}
+                          hasWindow={previewKind === 'window'}
+                          fullscreen={fullscreen}
+                          onToggleFullscreen={() => setFullscreen((value) => !value)}
+                        />
+                      )}
+                      <RuntimePreview
+                        key={'preview-' + previewed.id}
+                        runtime={previewed}
+                        covered={overlayOpen}
+                        fullscreen={fullscreen}
+                        onKindChange={setPreviewKind}
+                      />
+                    </>
+                  )}
                 </div>
+                {scanning && (
+                  <div className="scan-toast" role="status">
+                    <span className="spinner" />
+                    <span>Scanning local processes and TCP listeners…</span>
+                  </div>
+                )}
                 {scan?.limitations.length > 0 && (
                   <div className="scan-limitations">
                     <strong>Partial scan · other results are still shown</strong>
