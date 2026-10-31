@@ -85,24 +85,56 @@ ipcMain.handle('window:control', (event, action) => {
   throw new Error('Invalid window control action.');
 });
 
-ipcMain.handle('runtime:embed-window', (event, runtimeId, bounds) => {
-  assertTrustedSender(event, 'Runtime window embedding');
+// Fullscreen maximizes the manager to the work area rather than covering the taskbar: the app shown
+// inside it takes focus, and Windows would then draw the taskbar over the bottom of the app.
+let maximizedBeforeFullscreen = null;
+ipcMain.handle('window:fullscreen', (event, fullscreen) => {
+  assertTrustedSender(event, 'Fullscreen');
+  if (typeof fullscreen !== 'boolean') throw new Error('Invalid fullscreen request.');
+  if (!mainWindow) return false;
+  if (fullscreen && maximizedBeforeFullscreen === null) {
+    maximizedBeforeFullscreen = mainWindow.isMaximized();
+    mainWindow.maximize();
+  } else if (!fullscreen && maximizedBeforeFullscreen !== null) {
+    if (!maximizedBeforeFullscreen) mainWindow.unmaximize();
+    maximizedBeforeFullscreen = null;
+  }
+  return fullscreen;
+});
+
+// The renderer measures in page pixels; a presented window is placed in physical screen pixels.
+function screenRectForPage(bounds) {
+  if (!mainWindow || process.platform !== 'win32')
+    throw new Error('The manager window is unavailable.');
+  if (!bounds || !['x', 'y', 'width', 'height'].every((key) => Number.isFinite(bounds[key]))) {
+    throw new Error('Invalid window bounds.');
+  }
+  const content = mainWindow.getContentBounds();
+  const zoom = mainWindow.webContents.getZoomFactor();
+  return screen.dipToScreenRect(mainWindow, {
+    x: Math.round(content.x + bounds.x * zoom),
+    y: Math.round(content.y + bounds.y * zoom),
+    width: Math.round(bounds.width * zoom),
+    height: Math.round(bounds.height * zoom),
+  });
+}
+
+// Holds a runtime's window for the manager. Visible, it covers the given page rectangle; otherwise it
+// is parked off-screen at its own size, and the bounds are not needed.
+ipcMain.handle('runtime:present-window', (event, runtimeId, bounds, visible) => {
+  assertTrustedSender(event, 'Runtime window presentation');
   if (typeof runtimeId !== 'string' || runtimeId.length > 200) throw new Error('Invalid runtime.');
+  if (typeof visible !== 'boolean') throw new Error('Invalid window visibility.');
   const hostHandle = ownWindowHandle();
   if (!hostHandle) throw new Error('The manager window is unavailable.');
-  return takeControl.embedWindow(runtimeId, hostHandle, bounds);
+  const rect = visible ? screenRectForPage(bounds) : null;
+  return takeControl.presentWindow(runtimeId, hostHandle, rect, { show: visible });
 });
 
-ipcMain.handle('runtime:update-embedded-window', (event, runtimeId, bounds) => {
-  assertTrustedSender(event, 'Embedded window sizing');
+ipcMain.handle('runtime:restore-presented-window', (event, runtimeId) => {
+  assertTrustedSender(event, 'Presented window restore');
   if (typeof runtimeId !== 'string' || runtimeId.length > 200) throw new Error('Invalid runtime.');
-  return takeControl.updateEmbeddedWindow(runtimeId, bounds);
-});
-
-ipcMain.handle('runtime:restore-embedded-window', (event, runtimeId) => {
-  assertTrustedSender(event, 'Embedded window restore');
-  if (typeof runtimeId !== 'string' || runtimeId.length > 200) throw new Error('Invalid runtime.');
-  return takeControl.restoreEmbeddedWindow(runtimeId);
+  return takeControl.restorePresentedWindow(runtimeId);
 });
 
 function ownWindowHandle() {
@@ -302,7 +334,7 @@ function createWindow() {
     if (closing) return;
     event.preventDefault();
     closing = true;
-    takeControl.restoreAllEmbeds().finally(() => mainWindow?.destroy());
+    takeControl.restoreAllPresented().finally(() => mainWindow?.destroy());
   });
 
   mainWindow.on('closed', () => {
@@ -340,6 +372,18 @@ app.whenReady().then(() => {
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+// Quitting without closing the window, such as installing an update, must also hand presented
+// windows back to their apps before the manager goes away.
+let presentedReleased = false;
+app.on('before-quit', (event) => {
+  if (presentedReleased) return;
+  event.preventDefault();
+  takeControl.restoreAllPresented().finally(() => {
+    presentedReleased = true;
+    app.quit();
   });
 });
 

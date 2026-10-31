@@ -660,41 +660,100 @@ select {
 .refresh-button:disabled {
   cursor: wait;
 }
+.runtime-stage {
+  position: relative;
+}
+/* Fullscreen hands the whole width to the runtime; the sidebar returns when it is exited. */
+.window-shell.runtime-fullscreen .thread-sidebar {
+  display: none;
+}
+.window-shell.runtime-fullscreen .work-area {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* In fullscreen the manager's chrome steps aside; only a window-style frame stays around the app. */
+.window-shell.runtime-fullscreen .topbar,
+.window-shell.runtime-fullscreen .stage-toolbar,
+.window-shell.runtime-fullscreen .runtime-tabs,
+.window-shell.runtime-fullscreen .scan-limitations,
+.window-shell.runtime-fullscreen .scan-toast {
+  display: none;
+}
+/* A window-manager style border: an accent outline hugging the app with a small gap. */
+.window-shell.runtime-fullscreen .runtime-results {
+  position: relative;
+  padding: 30px 8px 8px;
+  background: var(--bg);
+}
+.window-shell.runtime-fullscreen .runtime-preview {
+  background: transparent;
+}
+.window-shell.runtime-fullscreen .preview-body {
+  padding: 3px;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.fullscreen-exit {
+  position: absolute;
+  top: 3px;
+  right: 8px;
+  padding: 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.769rem;
+  cursor: pointer;
+}
+.fullscreen-exit:hover {
+  border-color: var(--selected-line);
+  color: var(--text);
+}
+.scan-toast {
+  position: absolute;
+  right: 16px;
+  bottom: 52px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  font-size: 0.846rem;
+  color: var(--text);
+}
 .runtime-results {
-  padding: 14px;
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 10px;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
-.runtime-group {
-  border: 1px solid var(--line);
+.runtime-bar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
   background: var(--surface);
-  border-radius: 10px;
-  padding: 12px;
 }
-.runtime-group.selectable {
-  cursor: pointer;
-}
-.runtime-group.previewed.selectable {
-  border-color: var(--selected-line);
-}
-.runtime-group-header,
-.runtime-group-title,
-.runtime-group-state {
+.runtime-bar-title,
+.runtime-bar-actions {
   display: flex;
   align-items: center;
   gap: 9px;
-}
-.runtime-group-header {
-  justify-content: space-between;
-}
-.runtime-group-title {
   min-width: 0;
 }
-.runtime-group-title strong {
+.runtime-bar-actions {
+  flex: 0 0 auto;
+}
+.runtime-bar-title strong {
   font-size: 0.923rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -705,61 +764,32 @@ select {
   font-size: 0.846rem;
 }
 .take-control-message {
-  margin-top: 10px;
   font-size: 0.846rem;
   color: var(--muted);
 }
-.runtime-process {
+.runtime-tabs {
   display: flex;
-  gap: 9px;
-  align-items: baseline;
-  margin: 9px 0 0;
-  color: var(--text);
-  font-size: 0.769rem;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 8px 14px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
 }
-.runtime-process span {
-  min-width: 0;
+.runtime-tab {
+  padding: 5px 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: transparent;
   color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font: inherit;
+  font-size: 0.846rem;
   white-space: nowrap;
-}
-.runtime-endpoints {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-}
-.runtime-endpoints code {
-  font-size: 0.769rem;
-  color: var(--green);
-  background: var(--green-bg);
-  border: 1px solid var(--green-line);
-  border-radius: 5px;
-  padding: 4px 6px;
-}
-.runtime-evidence {
-  padding-left: 17px;
-  margin: 9px 0 0;
-  color: var(--muted);
-  font-size: 0.769rem;
-}
-.runtime-evidence li + li {
-  margin-top: 4px;
-}
-.helper-processes {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 0.769rem;
-}
-.helper-processes summary {
   cursor: pointer;
 }
-.helper-processes div {
-  padding: 5px 0 0 13px;
+.runtime-tab.active {
+  color: var(--text);
+  border-color: var(--selected-line);
 }
 .scan-limitations {
   display: flex;
@@ -780,53 +810,46 @@ select {
   display: flex;
   flex: 1;
   flex-direction: column;
-  min-height: 160px;
+  min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 10px;
   background: #05070a;
-}
-.runtime-preview.preview-fitted {
-  flex: 0 0 auto;
-  align-self: center;
-}
-.preview-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
-}
-.preview-source {
-  font-size: 0.923rem;
-  font-weight: 600;
-}
-.preview-note {
-  font-size: 0.769rem;
-  color: var(--muted);
 }
 .preview-body {
   position: relative;
   display: grid;
   flex: 1;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  padding: 4px;
+  background: var(--surface);
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
   min-height: 0;
 }
-.preview-body video,
+.preview-body video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  user-select: none;
+  pointer-events: none;
+}
+.preview-note-overlay {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border: 1px solid var(--amber-line);
+  border-radius: 7px;
+  background: var(--amber-bg);
+  color: var(--amber);
+  font-size: 0.846rem;
+}
 .preview-body iframe {
   width: 100%;
   height: 100%;
   border: 0;
-}
-.preview-body video {
-  object-fit: contain;
-  background: #000;
-  user-select: none;
-  cursor: default;
-  pointer-events: none;
-}
-.preview-body iframe {
   background: #fff;
   pointer-events: none;
 }
@@ -1330,14 +1353,9 @@ select {
   .refresh-button span {
     display: none;
   }
-  .runtime-group-header {
+  .runtime-bar {
     align-items: flex-start;
     flex-direction: column;
-  }
-  .runtime-process {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 3px;
   }
   .scan-limitations {
     flex-direction: column;

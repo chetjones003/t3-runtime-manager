@@ -12,17 +12,9 @@ const TARGETS_PATTERN = /^\d{1,10}:[\w .()-]{1,128}(,\d{1,10}:[\w .()-]{1,128})*
 async function runWindowScript(mode, targets, input) {
   const encoded = targets.map(({ pid, name }) => `${pid}:${name}`).join(',');
   if (
-    ![
-      'focus',
-      'find',
-      'mouse',
-      'key',
-      'embed',
-      'embed-hidden',
-      'update-embed',
-      'hide-embed',
-      'restore-embed',
-    ].includes(mode) ||
+    !['focus', 'find', 'mouse', 'key', 'present', 'update-present', 'restore-present'].includes(
+      mode,
+    ) ||
     !TARGETS_PATTERN.test(encoded)
   )
     return 'none';
@@ -32,15 +24,13 @@ async function runWindowScript(mode, targets, input) {
       ? `$MouseType = '${input.type}'\n$MouseX = ${input.x}\n$MouseY = ${input.y}\n$MouseButton = '${input.button}'\n$MouseFlags = ${input.buttons}\n$MouseDelta = ${input.delta}\n$PreviewHandle = '${input.handle ?? ''}'\n`
       : mode === 'key'
         ? `$KeyCode = ${input.keyCode}\n$CharCodes = @(${input.charCodes.join(',')})\n$Modifiers = ${input.modifiers}\n`
-        : mode === 'embed' || mode === 'embed-hidden'
-          ? `$HostHandle = '${input.hostHandle}'\n$EmbedX = ${input.x}\n$EmbedY = ${input.y}\n$EmbedWidth = ${input.width}\n$EmbedHeight = ${input.height}\n`
-          : mode === 'hide-embed'
-            ? `$EmbeddedHandle = '${input.handle}'\n`
-            : mode === 'update-embed'
-              ? `$EmbeddedHandle = '${input.handle}'\n$HostHandle = '${input.hostHandle}'\n$EmbedX = ${input.x}\n$EmbedY = ${input.y}\n$EmbedWidth = ${input.width}\n$EmbedHeight = ${input.height}\n`
-              : mode === 'restore-embed'
-                ? `$EmbeddedHandle = '${input.handle}'\n$OriginalState = '${JSON.stringify(input.state)}'\n`
-                : '';
+        : mode === 'present'
+          ? `$HostHandle = '${input.hostHandle}'\n$PresentX = ${input.x}\n$PresentY = ${input.y}\n$PresentWidth = ${input.width}\n$PresentHeight = ${input.height}\n$PresentActivate = ${input.activate ? 1 : 0}\n$PresentPark = ${input.park ? 1 : 0}\n`
+          : mode === 'update-present'
+            ? `$PresentedHandle = '${input.handle}'\n$HostHandle = '${input.hostHandle}'\n$PresentX = ${input.x}\n$PresentY = ${input.y}\n$PresentWidth = ${input.width}\n$PresentHeight = ${input.height}\n$PresentActivate = ${input.activate ? 1 : 0}\n$PresentPark = ${input.park ? 1 : 0}\n`
+            : mode === 'restore-present'
+              ? `$PresentedHandle = '${input.handle}'\n$OriginalState = '${JSON.stringify(input.state)}'\n`
+              : '';
   const { stdout } = await execFileAsync(
     'powershell.exe',
     [
@@ -71,7 +61,15 @@ function createTakeControlService({
   openExternal,
 }) {
   let latest = new Map();
-  const embeds = new Map();
+  // Windows shown full size over the manager, by runtime id, with the state to restore them to.
+  const presented = new Map();
+  let presentQueue = Promise.resolve();
+  // Presenting, hiding, and restoring change the same window, so they run one at a time.
+  function serial(task) {
+    const result = presentQueue.then(task);
+    presentQueue = result.catch(() => {});
+    return result;
+  }
   const previewWindows = new Map();
 
   function remember(runtimes) {
@@ -90,8 +88,7 @@ function createTakeControlService({
   async function takeControl(runtimeId) {
     const plan = planFor(runtimeId);
 
-    const embedded = embeds.get(runtimeId);
-    if (embedded) return { action: 'embedded' };
+    if (presented.has(runtimeId)) return { action: 'presented' };
 
     if (platform === 'win32' && plan.targets.length > 0) {
       let focused = false;
@@ -154,71 +151,76 @@ function createTakeControlService({
     }
   }
 
-  function validEmbedBounds(bounds) {
+  function validScreenBounds(bounds) {
     return (
       bounds &&
       ['x', 'y', 'width', 'height'].every((key) => Number.isInteger(bounds[key])) &&
-      bounds.x >= 0 &&
-      bounds.y >= 0 &&
+      Math.abs(bounds.x) <= 100000 &&
+      Math.abs(bounds.y) <= 100000 &&
       bounds.width >= 100 &&
       bounds.height >= 100 &&
-      bounds.x <= 10000 &&
-      bounds.y <= 10000 &&
-      bounds.width <= 10000 &&
-      bounds.height <= 10000
+      bounds.width <= 100000 &&
+      bounds.height <= 100000
     );
   }
 
-  async function updateEmbeddedWindow(runtimeId, bounds) {
-    if (platform !== 'win32' || !validEmbedBounds(bounds))
-      throw new Error('Invalid embedded window bounds.');
-    const embedded = embeds.get(runtimeId);
-    if (!embedded) return false;
-    const updated =
-      (await runWindowScript('update-embed', embedded.targets, {
-        handle: embedded.handle,
-        hostHandle: embedded.hostHandle,
-        ...bounds,
-      })) === 'updated';
-    if (updated) embedded.lastBounds = bounds;
-    return updated;
-  }
-
-  async function embedWindow(runtimeId, hostHandle, bounds) {
-    if (platform !== 'win32' || !/^\d{1,20}$/.test(hostHandle) || !validEmbedBounds(bounds)) {
-      throw new Error('Invalid window embedding request.');
+  // Presenting keeps the app's window top-level, so GPU-rendered apps keep drawing, and makes the
+  // manager its owner so it stays above the manager and leaves the taskbar. Shown, it covers the
+  // given screen rectangle and takes focus. Parked, it keeps its own size off-screen, where it still
+  // renders for the live preview, and never takes focus; the given bounds are then ignored.
+  async function presentWindow(runtimeId, hostHandle, bounds, { show = false } = {}) {
+    if (platform !== 'win32' || !/^\d{1,20}$/.test(hostHandle)) {
+      throw new Error('Invalid window presentation request.');
     }
+    if (show && !validScreenBounds(bounds)) throw new Error('Invalid window bounds.');
     const plan = planFor(runtimeId);
-    if (!plan.targets.length) return false;
-    if (embeds.has(runtimeId)) return updateEmbeddedWindow(runtimeId, bounds);
+    const current = presented.get(runtimeId);
+    if (current) {
+      // A parked window returns to the size it had before the manager held it.
+      const rect = show
+        ? bounds
+        : { x: 0, y: 0, width: current.state.width, height: current.state.height };
+      return (
+        (await runWindowScript('update-present', current.targets, {
+          handle: current.handle,
+          hostHandle,
+          activate: show,
+          park: !show,
+          ...rect,
+        })) === 'updated'
+      );
+    }
     if (!plan.windowTargets?.length) return false;
-    const result = await runWindowScript('embed', plan.windowTargets, { hostHandle, ...bounds });
+    const result = await runWindowScript('present', plan.windowTargets, {
+      hostHandle,
+      activate: show,
+      park: !show,
+      ...(show ? bounds : { x: 0, y: 0, width: 100, height: 100 }),
+    });
     let state;
     try {
       state = JSON.parse(result);
     } catch {
       return false;
     }
-    if (!state?.handle || !state?.style) return false;
-    embeds.set(runtimeId, {
-      targets: plan.windowTargets,
-      handle: state.handle,
-      hostHandle,
-      state,
-      lastBounds: bounds,
-    });
+    const validState =
+      /^\d{1,20}$/.test(state?.handle ?? '') &&
+      Number.isInteger(state.style) &&
+      ['x', 'y', 'width', 'height'].every((key) => Number.isInteger(state[key]));
+    if (!validState) return false;
+    presented.set(runtimeId, { targets: plan.windowTargets, handle: state.handle, state });
     return true;
   }
 
-  async function restoreEmbeddedWindow(runtimeId) {
-    const embedded = embeds.get(runtimeId);
-    if (!embedded) return true;
-    embeds.delete(runtimeId);
+  async function restorePresentedWindow(runtimeId) {
+    const current = presented.get(runtimeId);
+    if (!current) return true;
+    presented.delete(runtimeId);
     try {
       return (
-        (await runWindowScript('restore-embed', embedded.targets, {
-          handle: embedded.handle,
-          state: embedded.state,
+        (await runWindowScript('restore-present', current.targets, {
+          handle: current.handle,
+          state: current.state,
         })) === 'restored'
       );
     } catch {
@@ -226,78 +228,18 @@ function createTakeControlService({
     }
   }
 
-  async function parkEmbeddedWindow(runtimeId) {
-    const embedded = embeds.get(runtimeId);
-    if (!embedded) return false;
-    try {
-      return (
-        (await runWindowScript('hide-embed', embedded.targets, { handle: embedded.handle })) ===
-        'hidden'
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  async function prepareRuntimeWindows(runtimeIds, hostHandle) {
-    if (platform !== 'win32' || !Array.isArray(runtimeIds) || !/^\d{1,20}$/.test(hostHandle)) {
-      return;
-    }
-    const discovered = new Set(runtimeIds);
-    await Promise.all(
-      [...embeds.keys()]
-        .filter((runtimeId) => !discovered.has(runtimeId))
-        .map(restoreEmbeddedWindow),
-    );
-
-    for (const runtimeId of discovered) {
-      const plan = latest.get(runtimeId);
-      if (!plan?.windowTargets?.length) continue;
-      let existing = embeds.get(runtimeId);
-      if (existing && JSON.stringify(existing.targets) !== JSON.stringify(plan.windowTargets)) {
-        await restoreEmbeddedWindow(runtimeId);
-        existing = null;
-      }
-      if (existing) {
-        await parkEmbeddedWindow(runtimeId);
-        continue;
-      }
-      const result = await runWindowScript('embed-hidden', plan.windowTargets, {
-        hostHandle,
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 100,
-      });
-      let state;
-      try {
-        state = JSON.parse(result);
-      } catch {
-        continue;
-      }
-      if (state?.handle && state?.style) {
-        embeds.set(runtimeId, {
-          targets: plan.windowTargets,
-          handle: state.handle,
-          hostHandle,
-          state,
-        });
-      }
-    }
-  }
-
-  async function restoreAllEmbeds() {
-    await Promise.all([...embeds.keys()].map(restoreEmbeddedWindow));
+  async function restoreAllPresented() {
+    await Promise.all([...presented.keys()].map(restorePresentedWindow));
   }
 
   // What the preview area can show for a runtime: its window if it owns one, else its loopback
   // page, else nothing.
   async function getPreview(runtimeId) {
     const plan = planFor(runtimeId);
-    const embedded = embeds.get(runtimeId);
-    if (embedded) {
-      previewWindows.set(runtimeId, embedded.handle);
-      return { kind: 'window', handle: embedded.handle };
+    const current = presented.get(runtimeId);
+    if (current) {
+      previewWindows.set(runtimeId, current.handle);
+      return { kind: 'window', handle: current.handle };
     }
     const cachedHandle = previewWindows.get(runtimeId);
     if (cachedHandle) return { kind: 'window', handle: cachedHandle };
@@ -335,6 +277,13 @@ function createTakeControlService({
     const targets = [...latest.entries()].filter(([, plan]) => plan.windowTargets?.length > 0);
     return Promise.all(
       targets.map(async ([runtimeId, plan]) => {
+        // A held window is owned by the manager, so a fresh lookup would skip it and could pick,
+        // and show, one of the app's hidden helper windows instead.
+        const held = presented.get(runtimeId);
+        if (held) {
+          previewWindows.set(runtimeId, held.handle);
+          return held.handle;
+        }
         const cachedHandle = previewWindows.get(runtimeId);
         if (cachedHandle && hasWindowSource(cachedHandle)) return cachedHandle;
         previewWindows.delete(runtimeId);
@@ -356,12 +305,9 @@ function createTakeControlService({
     forgetPreviewWindow,
     preparePreviews,
     sendPreviewInput,
-    embedWindow,
-    updateEmbeddedWindow,
-    restoreEmbeddedWindow,
-    parkEmbeddedWindow,
-    prepareRuntimeWindows,
-    restoreAllEmbeds,
+    presentWindow: (...args) => serial(() => presentWindow(...args)),
+    restorePresentedWindow: (runtimeId) => serial(() => restorePresentedWindow(runtimeId)),
+    restoreAllPresented: () => serial(restoreAllPresented),
   };
 }
 

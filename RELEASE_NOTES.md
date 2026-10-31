@@ -2,6 +2,12 @@
 
 Every merge to `main` publishes the next patch version. Each pull request adds its own section at the top. The app's update window shows the section for the version it installs.
 
+## v0.1.13
+
+- The runtime preview now fills the center panel with a live view of the app's window on Windows.
+- **Fullscreen** places the real app window over the preview so you can use it inside the manager; exit fullscreen or close the manager to give the window back.
+- Runtimes without a window still use **Take Control** to open their loopback page.
+
 ## v0.1.12
 
 - Opening update details no longer starts downloading; choose Update to begin or Close to cancel.

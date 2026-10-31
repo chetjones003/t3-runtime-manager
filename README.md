@@ -2,7 +2,7 @@
 
 T3 Runtime Manager is a desktop companion for T3 Code. It shows threads that have worktrees, the local apps running in those worktrees, and their available runtime previews.
 
-Connect with a one-time code from **T3 Settings → Connections**. The thread view is read-only. Runtime discovery refreshes every five seconds. On Windows, the app can show a live window capture, forward mouse and keyboard input to that window, or bring it to the foreground with **Take Control**. When a runtime has no discoverable window, its loopback page is shown when available.
+Connect with a one-time code from **T3 Settings → Connections**. The thread view is read-only. Runtime discovery refreshes every five seconds. On Windows, the preview shows a live capture of the runtime's window. **Fullscreen** shows the real window full size inside the manager so you can use it, and gives it back when you exit or close the manager. For runtimes without a window, **Take Control** opens their loopback page. When a runtime has no discoverable window, its loopback page is shown when available.
 
 Building, starting, stopping, and remembered workspace settings are not connected yet.
 
